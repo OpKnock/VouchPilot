@@ -1,78 +1,170 @@
-﻿# VouchPilot — offline GST voucher intelligence
+﻿# VouchPilot
 
-VouchPilot classifies Indian accounting transactions into 1 of 27 GST voucher
-categories (Purchase, Sales, Import, Export, returns, payments, orders,
-job-work, stock, payroll and more). Give it a spreadsheet with the voucher
-type missing; it returns the label plus confidence, evidence tags and an
-honest `needs_review` flag. Everything runs locally — no accounts, no cloud.
+**Offline GST voucher intelligence.** Upload a spreadsheet of Indian
+accounting transactions with the voucher-type column missing — VouchPilot
+returns one of 27 voucher categories per row, with confidence, evidence tags
+and an honest `needs_review` flag. No accounts, no cloud, nothing leaves
+your machine.
 
-## 30-second start (no model needed)
+- 🧾 **Classify** — Excel in, predictions out (27 GST voucher types)
+- ✅ **Review** — human approval gate: approve, override, escalate
+- 📊 **Dashboard** — accuracy, distributions, calibration
+- 🛡️ **Fraud screen** — quishing-URL and prompt-injection checks on narrations
+- 🔌 **API + CLI** — every UI action exists as a command or endpoint
+
+---
+
+## 1. Quickstart (2 minutes, no model download)
 
 ```powershell
-pip install -e .[dev]
-python -m pytest tests/ -q                      # expect: 146 passed
-python -m vouch_engine gold --n 270 --seed 7 --out demo\gold
-python -m vouch_engine run --input demo\gold.xlsx --out demo\pred.jsonl --scorer keyword
-python -m vouch_engine evaluate --gold demo\gold_labels.json --pred demo\pred.jsonl
+git clone https://github.com/OpKnock/VouchPilot.git
+cd VouchPilot
+pip install -e ".[dev]"
+python -m pytest tests/ -q
 ```
 
-## Web app (one command)
+## 2. Run the app
+
+**Option A — double-click (recommended for real users)**
+
+Build the web UI once, then launch everything with one file:
+
+```powershell
+cd web; npm install; npm run build; cd ..
+double-click VouchPilot.exe        # or: start-vouchpilot.bat
+```
+
+Open `http://127.0.0.1:8000` in your browser. The launcher starts the AI
+model server if weights are present, then the backend, then stops everything
+when you close it. It never opens browser tabs on its own.
+
+**Option B — from source**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File start-vouchpilot.ps1
-# or double-click start-vouchpilot.bat / VouchPilot.exe, then open http://127.0.0.1:8000
 ```
 
-First build the premium UI once: `cd web && npm install && npm run build && cd ..`.
-The same backend also serves the API (`/predict`, `/evaluate`, `/health`,
-`/settings`, `/system`, `/labels`) with free OpenAPI docs at `/docs`.
-
-## Real AI scoring (optional, needs GPU + downloads)
+**Option C — Docker**
 
 ```powershell
-python scripts/fetch_model.py --out models      # ~2.7 GB Qwen3.5-4B Q4
-python scripts/fetch_server.py                  # ~650 MB llama.cpp CUDA build
-# server starts automatically via start-vouchpilot.ps1, or manually:
-.\tools\llama-server\bin\llama-server.exe -m models\Qwen3.5-4B-Q4_K_M.gguf --host 127.0.0.1 --port 8080 -c 4096 --n-gpu-layers 99 --cache-type-k q8_0 --cache-type-v q8_0
-python -m vouch_engine run --input demo\gold.xlsx --out demo\pred.jsonl --scorer server --workers 4
+python scripts/fetch_model.py --out models
+cd web; npm install; npm run build; cd ..
+docker compose up --build
 ```
 
-Minimum 8 GB RAM CPU-only; recommended 16 GB RAM + 6 GB VRAM GPU.
+## 3. Try it on sample data
 
-## What is "keyword" scorer?
+```powershell
+python -m vouch_engine gold --n 270 --seed 7 --out demo\gold
+python -m vouch_engine run --input demo\gold.xlsx --out demo\pred.jsonl --scorer keyword
+python -m vouch_engine evaluate --gold demo\gold_labels.json --pred demo\pred.jsonl --report demo\eval.json
+```
 
-The built-in rules classifier: instant, no download, strong baseline
-(macro-F1 0.80 on synthetic gold). `server` is the Qwen3.5-4B AI model
-(needs the llama server above); `vouchpilot` adds fraud screening on top;
-`stub` is a deterministic placeholder for tests.
+Or upload `demo\gold.xlsx` in the Classify tab and approve rows in Review.
 
-## Measured numbers (Qwen3.5-4B Q4, local RTX 4050)
+## 4. Scorers — pick your engine
+
+| Scorer | What it is | Needs |
+|---|---|---|
+| `keyword` (default) | Built-in rules classifier. Instant, surprisingly strong | Nothing |
+| `vouchpilot` | Keyword + fraud screening + calibration hooks | Nothing |
+| `server` | Qwen3.5-4B AI model, local GPU | `fetch_model.py` + `fetch_server.py` |
+| `stub` | Deterministic placeholder for tests | Nothing |
+
+`server` needs 16 GB RAM + 6 GB VRAM recommended (8 GB RAM CPU-only works,
+slower). Gemma 4 E4B weights are supported as an alternative bake-off
+candidate — see `specs/002-grounding-reliability/results_bakeoff.md`.
+
+## 5. CLI reference
+
+| Command | Does what |
+|---|---|
+| `gold` | Generate synthetic labelled datasets |
+| `run` | Classify a sheet (`--scorer`, `--workers`, `--limit/--offset`, `--exemplars`, `--margin`, `--max-challenge-rate`, `--calibrator`) |
+| `evaluate` | Accuracy, macro/micro F1, per-class report, ECE, pairwise F1 |
+| `calibrate` | Fit temperature scaling on held-out predictions |
+| `agent run` | Full loop: inspect → classify → challenge → human gate → export |
+| `agent review-template` | Emit the review queue without exporting |
+| `audit` | Retro-audit: recorded vs predicted voucher types |
+| `robust` | Perturbation sweeps (missing fields, renamed headers) |
+| `doctor` | Dependency, weights and server health check |
+
+Every command prints `WARN:` lines on degradation and never drops rows.
+
+## 6. API reference
+
+Base `http://127.0.0.1:8000`, interactive docs at `/docs`.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/health` | GET | Liveness |
+| `/predict` | POST | Classify an uploaded `.xlsx` |
+| `/predict-rows` | POST | Classify raw JSON rows |
+| `/evaluate` | POST | Score predictions against gold labels |
+| `/labels` | GET | The 27 voucher categories |
+| `/settings` | GET/POST | Workspace preferences |
+| `/system` | GET | Module health, weights, server status |
+| `/launcher`, `/desktop-package` | GET | Desktop downloads |
+
+## 7. Configuration
+
+Settings persist to `settings.json`: `scorer`, `endpoint`, `workers`
+(1 = bit-identical repro), `challenger`, `fraud`,
+`auto_approve_threshold` (review-queue cutoff shown in Review),
+`export_format`, `include_evidence`, `theme`.
+
+## 8. Project layout
+
+```
+src/vouch_engine/   pipeline, scorers, challenger, calibration, eval,
+                    agent loop, FastAPI service
+extensions/         fraud screens, auth, RAG evidence, retraining skeleton,
+                    vendor reports, tamper pins (optional, default off)
+web/src/            premium React UI (build with npm run build)
+gold/verify.csv     60 hand-checked rows covering all 27 labels
+specs/              design history + honest measurement logs
+scripts/            fetch_model.py, fetch_server.py
+desktop/            PyInstaller launcher sources (see docs/RELEASING.md)
+```
+
+`pilot.py` / `app.py` are the earlier Streamlit apps — still working,
+kept for reference.
+
+## 9. Measured results
+
+Qwen3.5-4B Q4 on RTX 4050, fixed seeds:
 
 | Variant | acc | macro-F1 |
 |---|---|---|
-| A0 keyword (270 synthetic) | 0.796 | 0.800 |
-| A0 keyword (60 hand-verified) | 0.867 | 0.825 |
-| A1 raw SLM (54) | 0.241 | 0.100 |
-| A4 grounded k=5 (54) | 0.259 | 0.114 |
-| A7 challenger (54 / 270) | 0.463 / 0.411 | 0.309 / 0.338 |
-| A4+A7 (54) | 0.500 | 0.349 |
+| Keyword, synthetic 270 | 0.796 | 0.800 |
+| Keyword, hand-verified 60 | 0.867 | 0.825 |
+| Raw SLM zero-shot (54) | 0.241 | 0.100 |
+| Grounded k=5 (54) | 0.259 | 0.114 |
+| Challenger (54 / 270) | 0.463 / 0.411 | 0.309 / 0.338 |
+| Full stack (54) | 0.500 | 0.349 |
 
 Synthetic gold flatters the keyword baseline (shared vocabulary); the
-human-verified set in `gold/verify.csv` is the honest check. Calibration
-(T=1.1) cut fit-set ECE 0.124 to 0.070.
+hand-verified set is the honest check. Full logs in `specs/`.
 
-## Layout
+## 10. Testing
 
-- `src/vouch_engine/` — pipeline (ingest, normalise, perspective, evidence,
-  scorers, challenger, calibration, eval, agent loop, API)
-- `extensions/` — fraud screens, auth, RAG evidence, retraining skeleton,
-  vendor reports, tamper pins (all optional, off by default)
-- `web/` — premium React UI (build it, then it is served by the API)
-- `gold/verify.csv` — 60 hand-checked rows across all 27 labels
-- `specs/` — Spec-Kit history (constitution, specs, measured results)
-- `pilot.py`, `app.py` — legacy Streamlit apps (still work)
+```powershell
+python -m pytest tests/ -q        # 146 tests, offline, no weights needed
+ruff check src tests scripts extensions app.py pilot.py
+cd web; npx tsc --noEmit; npm run build
+```
 
-## Docs
+## 11. Requirements
 
-- `docs/RELEASING.md` — building `VouchPilot.exe` and the desktop zip
-- `specs/*/` — design history and honest measurement logs
+- Python 3.11+, Node.js 18+ (UI build only), ~2 GB free (code + deps)
+- Optional AI path: +2.7 GB (Qwen weights) + ~650 MB (server) + NVIDIA GPU
+
+## 12. Roadmap
+
+Rate-capped challenger tuning · per-firm exemplars · human-verified gold
+expansion · Tally XML export · sub-1B edge build.
+
+---
+
+Built by **CodeCarto** for the Hacktober Fest open-source AI hackathon
+(Challenge 4: voucher classification with open-weight LLMs).
