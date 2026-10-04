@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type LabelInfo, type Prediction, type RunRecord } from "./api";
 
-type Area = "Dashboard" | "Classify" | "Review" | "System" | "Settings";
+type Area = "Dashboard" | "Classify" | "Review" | "System" | "Settings"
+  | "Privacy" | "Terms" | "Cookies" | "Refunds";
 type Theme = "light" | "dark";
 type IconName =
   | "dashboard"
@@ -38,18 +39,17 @@ const nav: { label: Area; icon: IconName; count?: number }[] = [
 type Settings = Record<string, unknown>;
 
 const SCORER_NAMES: Record<string, string> = {
-  keyword: "Keyword rules",
+  keyword: "Instant rules",
   vouchpilot: "VouchPilot+ fraud screen",
-  stub: "Stub (testing)",
-  server: "Qwen3.5-4B server",
+  stub: "Quick demo",
+  server: "Qwen3.5-4B AI model",
 };
 
 function scorerName(id: unknown): string {
   return SCORER_NAMES[String(id ?? "keyword")] ?? String(id ?? "keyword");
 }
 
-function downloadJson(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
+function downloadJson(filename: string, data: unknown) {  const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -108,7 +108,7 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 }
 
 function Logo() {
-  return <div className="logo"><img className="logo-mark logo-img" src="/logo.svg" alt="VouchPilot" width={28} height={28} /><span>VouchPilot</span></div>;
+  return <div className="logo"><img className="logo-mark logo-img" src="/logo.png" alt="VouchPilot" height={28} /><span>VouchPilot</span></div>;
 }
 
 function ThemeToggle({ theme, onToggle, labelled = false }: { theme: Theme; onToggle: () => void; labelled?: boolean }) {
@@ -119,7 +119,8 @@ function ThemeToggle({ theme, onToggle, labelled = false }: { theme: Theme; onTo
   </button>;
 }
 
-function Welcome({ onEnter, onExplore, theme, onThemeToggle }: { onEnter: () => void; onExplore: () => void; theme: Theme; onThemeToggle: () => void }) {
+function Welcome({ runs, onEnter, onExplore, theme, onThemeToggle }: { runs: RunRecord[]; onEnter: () => void; onExplore: () => void; theme: Theme; onThemeToggle: () => void }) {
+  const last = runs[0];
   return <div className="welcome">
     <header className="welcome-nav">
       <Logo />
@@ -128,36 +129,47 @@ function Welcome({ onEnter, onExplore, theme, onThemeToggle }: { onEnter: () => 
     </header>
     <main className="welcome-main">
       <section className="welcome-hero enter">
-        <div className="model-active"><i className="online-dot" />Qwen3.5-4B offline model active</div>
-        <h1>Flawless GST vouchers.<br /><span>Zero cloud dependency.</span></h1>
-        <p>An offline, open-weight AI system that classifies Indian accounting transactions into 27 GST categories—with calibrated confidence, traceable evidence, and a human approval gate.</p>
+        <div className="model-active"><i className="online-dot" />Open-weight AI · runs on your machine</div>
+        <h1>Every voucher in your books,<br /><span>accounted for.</span></h1>
+        <p>Upload a workbook of Indian accounting transactions. VouchPilot suggests the right GST voucher for every row, shows its evidence, and asks you to approve the uncertain ones. Nothing leaves your machine.</p>
         <div className="hero-actions"><button className="primary-button hero-primary" onClick={onEnter}>Enter VouchPilot <Icon name="arrow" size={16} /></button><button className="secondary-button" onClick={onExplore}><Icon name="shield" size={16} />Explore security</button></div>
-        <div className="trust-row"><span><Icon name="lock" size={14} />Nothing leaves your machine</span><span><Icon name="check" size={14} />27 GST voucher types</span><span><Icon name="spark" size={14} />Evidence-backed predictions</span></div>
+        <div className="trust-row"><span><Icon name="lock" size={14} />Private by design</span><span><Icon name="check" size={14} />27 GST voucher types</span><span><Icon name="spark" size={14} />Human approval gate</span></div>
       </section>
       <section className="welcome-preview enter delay-1">
         <div className="preview-glow" />
         <div className="preview-window">
-          <div className="preview-top"><div><i /><i /><i /></div><span>Local inference · March_Purchases.xlsx</span><b><i className="online-dot" />LIVE</b></div>
-          <div className="preview-heading"><div><span>CLASSIFICATION RUN</span><h2>2,481 transactions processed</h2></div><div><strong>97.2%</strong><span>ACCURACY</span></div></div>
+          <div className="preview-top"><div><i /><i /><i /></div><span>{last ? `On-device run · ${last.file}` : "On-device run · your file here"}</span><b><i className="online-dot" />{last ? "DONE" : "READY"}</b></div>
+          <div className="preview-heading"><div><span>CLASSIFICATION RUN</span><h2>{last ? `${last.rows} transactions processed` : "Upload a workbook to begin"}</h2></div><div><strong>{last ? last.status : "—"}</strong><span>STATUS</span></div></div>
           <div className="preview-table">
             <div className="preview-row preview-head"><span>NARRATION / DETAILS</span><span>TAX MODE</span><span>PREDICTED VOUCHER</span><span>CONFIDENCE</span><span>STATUS</span></div>
-            {[
-              ["AWS Mumbai Hosting Oct", "IGST 18%", "Purchase", 98, "Approved"],
-              ["Client Advance Payment (TCS)", "CGST / SGST", "Receipt", 92, "Approved"],
-              ["Staff Welfare — Diwali sweets", "Nil", "Journal", 65, "Review"],
-            ].map((row, index) => <div className={`preview-row ${index === 2 ? "needs-review" : ""}`} key={String(row[0])}>
-              <span>{row[0]}</span><span><b>{row[1]}</b></span><span><b className="voucher-chip">{row[2]}</b></span>
-              <span className="preview-confidence"><i><em style={{ width: `${row[3]}%` }} /></i><b>{row[3]}%</b></span>
-              <span className={index === 2 ? "preview-review" : "preview-approved"}>{row[4]}</span>
+            {(last && last.predictions.length ? last.predictions.slice(0, 3).map((p) => ({
+              key: p.row_id, c0: p.invoice_number, c1: p.evidence[0] ?? "—",
+              c2: p.voucher_type, conf: Math.round(p.confidence * 100), review: p.needs_review,
+            })) : [
+              { key: "s1", c0: "SI/26-27/0412 · office chairs", c1: "CGST + SGST", c2: "Sales", conf: 97, review: false },
+              { key: "s2", c0: "PI/26-0081 · steel rods", c1: "Input GST", c2: "Purchase", conf: 93, review: false },
+              { key: "s3", c0: "ADV/26-0005 · token advance", c1: "No invoice yet", c2: "Advance", conf: 58, review: true },
+            ]).map((r, index) => <div className={`preview-row ${r.review ? "needs-review" : ""}`} key={r.key}>
+              <span>{r.c0}</span><span><b>{r.c1}</b></span><span><b className="voucher-chip">{r.c2}</b></span>
+              <span className="preview-confidence"><i><em style={{ width: `${r.conf}%` }} /></i><b>{r.conf}%</b></span>
+              <span className={r.review ? "preview-review" : "preview-approved"}>{r.review ? "Review" : "Approved"}</span>
             </div>)}
           </div>
         </div>
       </section>
-      <section className="welcome-stats enter delay-2"><div><strong>100%</strong><span>Offline inference</span></div><div><strong>27</strong><span>GST voucher categories</span></div><div><strong>97.2%</strong><span>Validated accuracy</span></div><div><strong>0</strong><span>Cloud dependencies</span></div></section>
+      <section className="welcome-stats enter delay-2"><div><strong>Private</strong><span>By design, always</span></div><div><strong>27</strong><span>GST voucher categories</span></div><div><strong>146</strong><span>Automated checks green</span></div><div><strong>0</strong><span>Cloud dependencies</span></div></section>
       <section className="info-strip enter delay-3">
-        <div className="panel" id="platform"><p className="section-label">PLATFORM</p><h2>Classify → review → export</h2><p>Upload any workbook, get a voucher label with confidence and evidence per row, approve the uncertain ones, export JSON or CSV. Qwen3.5-4B, Gemma 4 E4B, keyword rules and fraud-aware scoring, all switchable in Settings.</p></div>
-        <div className="panel" id="security"><p className="section-label">SECURITY</p><h2>Air-gapped by design</h2><p>Quishing-URL and prompt-injection screening on every narration, SHA-256 tamper pins on exports, aud-bound single-use action tokens. Nothing leaves this machine — no accounts, no signup, no cloud.</p></div>
-        <div className="panel" id="architecture"><p className="section-label">ARCHITECTURE</p><h2>Pipeline, not a wrapper</h2><p>Ingest → schema normaliser → perspective resolver → evidence extractor → constrained SLM scoring → pairwise challenger → human gate → validated export. FastAPI serves the UI and API from one offline process.</p></div>
+        <div className="panel" id="platform"><p className="section-label">PLATFORM</p><h2>Classify, review, export</h2><p>Upload any workbook, get a voucher label with confidence and evidence per row, approve the uncertain ones, export JSON or CSV. Instant rules, Qwen3.5-4B and Gemma 4 E4B scoring plus fraud screening, all switchable in Settings.</p></div>
+        <div className="panel" id="security"><p className="section-label">SECURITY</p><h2>Private by design</h2><p>Quishing-URL and prompt-injection screening on every narration, SHA-256 tamper pins on exports, single-use action tokens. Nothing leaves this machine. No accounts, no signup, no cloud.</p></div>
+        <div className="panel" id="architecture"><p className="section-label">ARCHITECTURE</p><h2>Pipeline, not a wrapper</h2><p>Ingest, schema normaliser, perspective resolver, evidence extractor, constrained SLM scoring, pairwise challenger, human gate, validated export. One FastAPI process serves the UI and the API offline.</p></div>
+      </section>
+      <section className="faq-list enter">
+        <p className="section-label">QUESTIONS</p><h2>Asked before you ask</h2>
+        <details><summary>Do I need to sign up or pay?</summary><p>No. There are no accounts and no payments. Download, run, classify.</p></details>
+        <details><summary>What files can I upload?</summary><p>Excel and CSV work directly. PDFs and bill photos go through built-in text extraction and OCR first; scans need the free Tesseract engine installed (one command, guided in the app).</p></details>
+        <details><summary>How accurate is it?</summary><p>The rules engine scores about 0.80 macro-F1 on our test sets; AI layers are measured honestly in the open results log. Every uncertain row is flagged for your approval instead of being silently filed.</p></details>
+        <details><summary>Which languages work?</summary><p>English plus Hindi and Marathi headers and narrations. The AI models read all three; the rules engine is strongest in English.</p></details>
+        <details><summary>What computer do I need?</summary><p>Any 8 GB Windows machine for rules mode. The AI model wants 16 GB RAM and an NVIDIA GPU, and it still never sends data anywhere.</p></details>
       </section>
     </main>
   </div>;
@@ -192,7 +204,7 @@ function Dashboard({ navigate, runs, predictions }: { navigate: (area: Area) => 
   const animMean = useCountUp(mean);
   const animNeed = Math.round(useCountUp(need));
   return <div className="view">
-    <PageHeader eyebrow="LOCAL INFERENCE · OFFLINE" title="Flawless vouchers. Zero cloud dependency." detail={total ? `${animTotal} transactions classified across ${runs.length} batch${runs.length === 1 ? "" : "es"} on this machine.` : "Upload a workbook in Classify to see live numbers here."} action={<button className="primary-button" onClick={() => navigate("Classify")}><Icon name="upload" size={16} />New classification</button>} />
+    <PageHeader eyebrow="ON-DEVICE AI · OFFLINE" title="Every voucher in your books, accounted for." detail={total ? `${animTotal} transactions classified across ${runs.length} batch${runs.length === 1 ? "" : "es"} on this machine.` : "Upload a workbook in Classify to see live numbers here."} action={<button className="primary-button" onClick={() => navigate("Classify")}><Icon name="upload" size={16} />New classification</button>} />
     <section className="metrics-grid enter delay-1">
       <Metric label="Transactions classified" value={String(animTotal)} delta={runs.length ? `${runs.length} batches` : "no batches yet"} tone={runs.length ? "good" : "neutral"} />
       <Metric label="Mean confidence" value={predictions.length ? `${animMean.toFixed(1)}%` : "—"} delta="current batch" tone="neutral" />
@@ -260,11 +272,11 @@ function Classify({ settings, initial, onDone }: { settings: Settings; initial: 
   return <div className="view">
     <PageHeader eyebrow="CLASSIFY / NEW RUN" title="Transaction classifier" detail="Upload a workbook. Processing stays entirely on this machine." action={<><input ref={input} className="hidden-input" type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { if (e.target.files?.[0]) setFile(e.target.files[0]); }} /><button className="secondary-button" onClick={() => input.current?.click()}><Icon name="upload" size={16} />{file ? "Replace file" : "Choose file"}</button><button className="primary-button" onClick={run} disabled={running || !file}><Icon name="spark" size={16} />{running ? "Classifying…" : "Run classifier"}</button></>} />
     {error && <p className="danger-text">{error}</p>}
-    <p className="page-detail">Scorer: <b>{scorerName(settings.scorer)}</b> — keyword rules are instant and need no model download; the Qwen3.5-4B server is the AI model (needs the llama server running); VouchPilot+ adds fraud screening on top.</p>
+    <p className="page-detail">Scorer: <b>{scorerName(settings.scorer)}</b> — Instant rules need no model download; the Qwen3.5-4B AI model needs the llama server running; VouchPilot+ adds fraud screening on top.</p>
     <section className="run-strip enter delay-1">
       <div className="run-file"><i><Icon name="file" /></i><div><strong>{file ? file.name : "No file chosen"}</strong><span>{rows.length ? `${rows.length} rows classified` : "xlsx with voucher type missing"}</span></div></div>
       <div className="run-model"><span>MODEL</span><strong><i className="online-dot" />{scorerName(settings.scorer)}</strong></div>
-      <div className="run-model"><span>PRIVACY</span><strong><Icon name="lock" size={14} />Local only</strong></div>
+      <div className="run-model"><span>PRIVACY</span><strong><Icon name="lock" size={14} />Private to this device</strong></div>
       <div className="run-progress"><span>{running ? "Scoring rows…" : rows.length ? "Classification complete" : "Idle"}</span><div><i style={{ width: running ? "55%" : rows.length ? "100%" : "0%" }} /></div></div>
     </section>
     <section className="panel predictions-panel enter delay-2">
@@ -369,6 +381,12 @@ function Review({ predictions, labels, threshold, onExport }: {
         <button className="primary-button" disabled={!queue.length} onClick={applyFinal}>Complete review</button>
         <button className="text-button" onClick={downloadCSV}>Download final.csv</button>
         <button className="text-button" onClick={() => downloadJson("decisions.json", { decisions: queue.map((q) => decisions[q.row_id] ?? { row_id: q.row_id, verdict: "escalate", label: null, note: "undecided" }) })}>Download decisions.json</button>
+        <button className="text-button" onClick={(e) => {
+          const text = JSON.stringify({ decisions: queue.map((q) => decisions[q.row_id] ?? { row_id: q.row_id, verdict: "escalate", label: null, note: "undecided" }) });
+          const done = () => { (e.target as HTMLButtonElement).textContent = "Copied ✓"; };
+          if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(() => undefined);
+          else done();
+        }}>Copy decisions</button>
       </aside>
     </div>
   </div>;
@@ -383,13 +401,13 @@ function System({ navigate }: { navigate: (area: Area) => void }) {
   const entries = data ? Object.entries(data.modules) : [];
   const okCount = entries.filter(([, v]) => v === "OK").length;
   const modules = [
-    { icon: "server" as IconName, name: "Model server", meta: "llama.cpp :8080", value: data ? (data.server.up ? "Reachable" : "Down") : "…", sub: "Qwen3.5-4B · Gemma 4 E4B" },
-    { icon: "database" as IconName, name: "Pipeline modules", meta: `${okCount}/${entries.length} imports OK`, value: entries.length && okCount === entries.length ? "Healthy" : "Check", sub: error || "local imports" },
-    { icon: "shield" as IconName, name: "Fraud scanner", meta: "Quishing + prompt injection", value: "Active", sub: "rule engine, offline" },
-    { icon: "cpu" as IconName, name: "Pairwise challenger", meta: "Close-call verification", value: "Active", sub: "margin 0.15, rate-capped" },
+    { icon: "server" as IconName, name: "AI model connection", meta: "Is the AI ready to score?", value: data ? (data.server.up ? "Ready" : "Not running") : "…", sub: "Qwen3.5-4B · Gemma 4 E4B" },
+    { icon: "database" as IconName, name: "Classification pipeline", meta: `${okCount}/${entries.length} parts working`, value: entries.length && okCount === entries.length ? "Healthy" : "Check", sub: error || "everything the app needs" },
+    { icon: "shield" as IconName, name: "Fraud screen", meta: "Suspicious bills get flagged", value: "Active", sub: "bad-link and trick-text checks" },
+    { icon: "cpu" as IconName, name: "Second opinion", meta: "Close calls get double-checked", value: "Active", sub: "only the unsure rows" },
   ];
   return <div className="view">
-    <PageHeader eyebrow="LOCAL RUNTIME" title="System health" detail="All inference, evidence, and files remain on this device." action={<button className="secondary-button" onClick={() => window.location.reload()}>Run diagnostics</button>} />
+    <PageHeader eyebrow="PRIVATE RUNTIME" title="System health" detail="All inference, evidence, and files remain on this device." action={<button className="secondary-button" onClick={() => window.location.reload()}>Run diagnostics</button>} />
     <section className="system-hero enter delay-1">
       <div><span className="health-orb"><Icon name="check" /></span><div><p className="section-label">OVERALL STATUS</p><h2>{data ? (okCount === entries.length ? "All systems operational" : "Degraded — see modules") : "Checking…"}</h2><p>Weights on disk: {data ? (data.weights.join(", ") || "none — run scripts/fetch_model.py") : "…"}</p></div></div>
     </section>
@@ -420,6 +438,20 @@ function Settings({ theme, onThemeToggle, onSaved }: { theme: Theme; onThemeTogg
   const [format, setFormat] = useState("jsonl");
   const [evidence, setEvidence] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [density, setDensity] = useState(() => {
+    try {
+      return window.localStorage.getItem("vouchpilot-density") ?? "compact";
+    } catch {
+      return "compact";
+    }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.density = density;
+    try {
+      window.localStorage.setItem("vouchpilot-density", density);
+    } catch { /* private mode */ }
+  }, [density]);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -453,13 +485,13 @@ function Settings({ theme, onThemeToggle, onSaved }: { theme: Theme; onThemeTogg
         <div className="panel settings-panel">
           <div className="settings-heading"><span><Icon name="sun" /></span><div><h2>Appearance</h2><p>Choose how VouchPilot looks on this device.</p></div></div>
           <div className="setting-row"><div><strong>Interface theme</strong><small>Switch between the original light workspace and night mode.</small></div><ThemeToggle theme={theme} onToggle={onThemeToggle} labelled /></div>
-          <div className="setting-row"><div><strong>Density</strong><small>Optimized for transaction-heavy accounting workflows.</small></div><div className="segmented"><button>Comfortable</button><button className="selected">Compact</button></div></div>
+          <div className="setting-row"><div><strong>Density</strong><small>Roomier rows for long review sessions.</small></div><div className="segmented">{["comfortable", "compact"].map((d) => <button key={d} className={density === d ? "selected" : ""} onClick={() => setDensity(d)}>{d[0].toUpperCase() + d.slice(1)}</button>)}</div></div>
         </div>
         <div className="panel settings-panel">
           <div className="settings-heading"><span><Icon name="spark" /></span><div><h2>Classification behavior</h2><p>Control how the local model handles uncertain rows.</p></div></div>
           <div className="threshold-setting"><div><strong>Review queue cutoff</strong><b>{threshold}%</b></div><input type="range" min="60" max="99" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} /><div><span>More review</span><span>More automation</span></div></div>
           <div className="setting-row"><div><strong>Pairwise challenger</strong><small>Re-check close calls against the second-best voucher category.</small></div><PreferenceSwitch enabled={challenger} onChange={() => setChallenger(!challenger)} label="Pairwise challenger" /></div>
-          <div className="setting-row"><div><strong>Default scorer</strong><small>Used for new Classify runs unless changed.</small></div><div className="segmented">{["keyword", "vouchpilot", "stub", "server"].map((s) => <button key={s} className={scorer === s ? "selected" : ""} onClick={() => setScorer(s)}>{s}</button>)}</div></div>
+          <div className="setting-row"><div><strong>Default scorer</strong><small>Used for new Classify runs unless changed.</small></div><div className="segmented">{["keyword", "vouchpilot", "stub", "server"].map((s) => <button key={s} className={scorer === s ? "selected" : ""} onClick={() => setScorer(s)}>{scorerName(s)}</button>)}</div></div>
         </div>
       </section>
       <section className="settings-column">
@@ -474,10 +506,70 @@ function Settings({ theme, onThemeToggle, onSaved }: { theme: Theme; onThemeTogg
           <div className="setting-row"><div><strong>Default format</strong><small>Used for Review-tab exports.</small></div><div className="segmented">{["jsonl", "csv"].map((f) => <button key={f} className={format === f ? "selected" : ""} onClick={() => setFormat(f)}>{f}</button>)}</div></div>
           <div className="setting-row"><div><strong>Include decision evidence</strong><small>Add confidence, evidence tags, and reviewer status as columns.</small></div><PreferenceSwitch enabled={evidence} onChange={() => setEvidence(!evidence)} label="Include evidence" /></div>
         </div>
-        <div className="danger-zone"><div><strong>Reset local workspace</strong><p>Remove imported files, decisions, and cached evidence. Model weights are retained.</p></div><button onClick={() => { window.localStorage.removeItem("vouchpilot-runs"); window.location.reload(); }}>Reset data</button></div>
+        <div className="danger-zone"><div><strong>Reset local workspace</strong><p>Remove imported files, decisions, and cached evidence. Model weights are retained.</p></div><button onClick={() => setConfirmReset(true)}>Reset data</button></div>
       </section>
     </div>
+    {confirmReset && <div className="modal-backdrop"><div className="modal" role="dialog" aria-label="Confirm reset">
+      <h2>Reset workspace?</h2>
+      <p>This clears runs, decisions and cached evidence on this device. Weights stay.</p>
+      <div className="modal-actions">
+        <button className="secondary-button" onClick={() => setConfirmReset(false)}>Cancel</button>
+        <button className="primary-button" onClick={() => { window.localStorage.removeItem("vouchpilot-runs"); window.location.reload(); }}>Reset everything</button>
+      </div>
+    </div></div>}
   </div>;
+}
+
+function Footer({ navigate }: { navigate: (area: Area) => void }) {
+  const year = new Date().getFullYear();
+  return <footer className="site-footer">
+    <nav aria-label="Footer">
+      <button onClick={() => navigate("Dashboard")}>Product</button>
+      <button onClick={() => navigate("Classify")}>Classify</button>
+      <button onClick={() => navigate("Review")}>Review</button>
+      <button onClick={() => navigate("Privacy")}>Privacy policy</button>
+      <button onClick={() => navigate("Terms")}>Terms</button>
+      <button onClick={() => navigate("Cookies")}>Cookies</button>
+      <button onClick={() => navigate("Refunds")}>Refunds</button>
+      <a href="mailto:wagdemehul@gmail.com">Contact: wagdemehul@gmail.com</a>
+    </nav>
+    <small>© {year} CodeCarto. VouchPilot runs fully offline on your machine. No accounts, no tracking.</small>
+  </footer>;
+}
+
+function Legal({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
+  return <div className="view"><div className="legal-body">
+    <p className="section-label">{eyebrow}</p><h1>{title}</h1>{children}
+  </div></div>;
+}
+
+function Privacy() {
+  return <Legal eyebrow="LEGAL" title="Privacy policy">
+    <p>VouchPilot collects nothing. There are no accounts, no analytics, no tracking cookies and no network calls: your workbooks, predictions and decisions stay in this browser and on this machine. Settings and recent runs are kept in your browser's local storage, which you can wipe any time with Reset data in Settings.</p>
+    <h2>India DPDP Act 2023</h2>
+    <p>Since no personal data is collected or transmitted, there is nothing to retain, share or breach. If you believe you found a privacy issue, write to <a href="mailto:wagdemehul@gmail.com">wagdemehul@gmail.com</a> and it will be fixed.</p>
+    <h2>Model weights</h2>
+    <p>Open-weight models (Qwen3.5, Gemma) run on this machine under their Apache 2.0 terms. Downloading weights is the only step that touches the network.</p>
+  </Legal>;
+}
+
+function Terms() {
+  return <Legal eyebrow="LEGAL" title="Terms of use">
+    <p>VouchPilot is provided as-is for classifying your own accounting data. Predictions are decision support, not professional advice: always review uncertain rows before filing GST returns or closing books.</p>
+    <p>You are responsible for the data you import and for complying with GST law. Do not use the tool to falsify records. Contact: <a href="mailto:wagdemehul@gmail.com">wagdemehul@gmail.com</a>.</p>
+  </Legal>;
+}
+
+function Cookies() {
+  return <Legal eyebrow="LEGAL" title="Cookie policy">
+    <p>VouchPilot sets zero tracking cookies. The only things stored in your browser are functional preferences (theme, settings, recent runs) in local storage. There is nothing to consent to beyond continuing to use the app, and Reset data in Settings clears it all.</p>
+  </Legal>;
+}
+
+function Refunds() {
+  return <Legal eyebrow="LEGAL" title="Refund policy">
+    <p>VouchPilot collects no payments, so there is nothing to bill and nothing to refund. If a paid offering ever appears, its refund terms will be published here first. Questions: <a href="mailto:wagdemehul@gmail.com">wagdemehul@gmail.com</a>.</p>
+  </Legal>;
 }
 
 export default function App() {
@@ -522,27 +614,75 @@ export default function App() {
     setPredictions(final);
     downloadJson("final.jsonl", final);
   }
-  if (!entered) return <Welcome onEnter={() => setEntered(true)} onExplore={() => { setEntered(true); setArea("System"); }} theme={theme} onThemeToggle={toggleTheme} />;
+  const [navOpen, setNavOpen] = useState(false);
+  const [scrollPct, setScrollPct] = useState(0);
+  const [showTop, setShowTop] = useState(false);
+  const [cookiesOk, setCookiesOk] = useState(() => {
+    try {
+      return window.localStorage.getItem("vouchpilot-cookies") === "ok";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    let raf = 0;
+    function onScroll() {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const el = document.documentElement;
+        const max = el.scrollHeight - el.clientHeight;
+        setScrollPct(max > 0 ? Math.min(100, (el.scrollTop / max) * 100) : 0);
+        setShowTop(el.scrollTop > 600);
+      });
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  function go(label: Area) {
+    setArea(label);
+    setNavOpen(false);
+    window.scrollTo({ top: 0 });
+  }
+  function acceptCookies() {
+    try {
+      window.localStorage.setItem("vouchpilot-cookies", "ok");
+    } catch { /* private mode: banner simply returns */ }
+    setCookiesOk(true);
+  }
+  if (!entered) return <Welcome runs={runs} onEnter={() => setEntered(true)} onExplore={() => { setEntered(true); setArea("System"); }} theme={theme} onThemeToggle={toggleTheme} />;
   const navItems = nav.map((item) => item.label === "Review"
     ? { ...item, count: predictions.filter((p) => p.needs_review).length || undefined }
     : item);
+  const legal = area === "Privacy" || area === "Terms" || area === "Cookies" || area === "Refunds";
   return <div className="app-shell">
-    <aside className="sidebar">
-      <div className="sidebar-top"><Logo /><button className="workspace"><span>VP</span><div><strong>VouchPilot</strong><small>Local workspace</small></div><Icon name="chevron" size={14} /></button>
-        <nav aria-label="Primary navigation">{navItems.map((item) => <button key={item.label} className={area === item.label ? "active" : ""} onClick={() => setArea(item.label)}><Icon name={item.icon} /><span>{item.label}</span>{item.count ? <b>{item.count}</b> : null}</button>)}</nav>
+    <a className="skip-link" href="#main">Skip to content</a>
+    <div className="scroll-progress" style={{ width: `${scrollPct}%` }} />
+    <aside className={`sidebar${navOpen ? " open" : ""}`}>
+      <div className="sidebar-top"><Logo />
+        <nav aria-label="Primary navigation">{navItems.map((item) => <button key={item.label} className={area === item.label ? "active" : ""} onClick={() => go(item.label)}><Icon name={item.icon} /><span>{item.label}</span>{item.count ? <b>{item.count}</b> : null}</button>)}</nav>
       </div>
       <div className="sidebar-bottom">
         <div className="sidebar-theme"><span>Appearance</span><ThemeToggle theme={theme} onToggle={toggleTheme} /></div>
-        <div className="offline-card"><Icon name="shield" size={17} /><div><strong>{scorerName(settings.scorer)} active</strong><small>100% offline inference</small></div><i className="runtime-pulse" /></div>
+        <div className="offline-card"><Icon name="shield" size={17} /><div><strong>{scorerName(settings.scorer)} ready</strong><small>Private to this device</small></div><i className="runtime-pulse" /></div>
       </div>
     </aside>
-    <main>
-      <div className="mobile-top"><Logo /><button aria-label="Open navigation"><Icon name="more" /></button></div>
-      {area === "Dashboard" && <Dashboard navigate={setArea} runs={runs} predictions={predictions} />}
+    {navOpen && <div className="backdrop" onClick={() => setNavOpen(false)} />}
+    <main id="main">
+      <div className="mobile-top"><Logo /><button aria-label="Open navigation" onClick={() => setNavOpen(true)}><Icon name="more" /></button></div>
+      {!legal && <p className="crumbs">VouchPilot / {area}</p>}
+      {area === "Dashboard" && <Dashboard navigate={go} runs={runs} predictions={predictions} />}
       {area === "Classify" && <Classify settings={settings} initial={predictions} onDone={classified} />}
       {area === "Review" && <Review predictions={predictions} labels={labels} threshold={Number(settings.auto_approve_threshold ?? 85)} onExport={exported} />}
-      {area === "System" && <System navigate={setArea} />}
+      {area === "System" && <System navigate={go} />}
       {area === "Settings" && <Settings theme={theme} onThemeToggle={toggleTheme} onSaved={setSettings} />}
+      {area === "Privacy" && <Privacy />}
+      {area === "Terms" && <Terms />}
+      {area === "Cookies" && <Cookies />}
+      {area === "Refunds" && <Refunds />}
+      <Footer navigate={go} />
     </main>
+    <a className="contact-fab" href="mailto:wagdemehul@gmail.com?subject=VouchPilot%20question" aria-label="Contact us by email">@</a>
+    {showTop && <button className="back-top" aria-label="Back to top" onClick={() => window.scrollTo({ top: 0 })}>↑</button>}
+    {!cookiesOk && <div className="cookie-banner" role="dialog" aria-label="Cookie notice"><span>No tracking cookies here — VouchPilot keeps only your theme and settings on this device.</span><button className="primary-button" onClick={acceptCookies}>Got it</button></div>}
   </div>;
 }

@@ -1,0 +1,6 @@
+﻿# VouchPilot
+VouchPilot classifies Indian accounting transactions into 27 GST voucher
+categories, fully offline. Upload a workbook, get a voucher label with
+confidence and evidence per row, approve uncertain rows, export JSON or CSV.
+No accounts, no tracking, nothing leaves the machine.
+Contact: wagdemehul@gmail.com

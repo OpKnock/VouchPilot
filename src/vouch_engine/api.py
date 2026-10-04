@@ -122,10 +122,28 @@ def create_app() -> FastAPI:
                       endpoint: str = 'http://127.0.0.1:8080',
                       workers: int = 1, challenge: bool = False) -> dict:
         raw = await file.read()
+        name = (file.filename or '').lower()
         suffix = '.xlsx'
+        if name.endswith('.pdf'):
+            suffix = '.pdf'
+        elif name.endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.webp')):
+            suffix = '.png'
+        elif name.endswith('.csv'):
+            suffix = '.csv'
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(raw)
             path = tmp.name
+        if suffix in ('.pdf', '.png'):
+            try:
+                from . import intake as _intake
+
+                converted = path + '.rows.xlsx'
+                rep = _intake.intake_to_xlsx(path, converted)
+                if rep.get('ocr_used'):
+                    print('WARN: OCR was used; verify extracted fields', flush=True)
+                path = converted
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail='intake failed: %s' % (exc,))
         try:
             data = ingest.read_excel(path)
         except Exception as exc:

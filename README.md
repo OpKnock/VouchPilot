@@ -44,6 +44,18 @@ when you close it. It never opens browser tabs on its own.
 powershell -ExecutionPolicy Bypass -File start-vouchpilot.ps1
 ```
 
+**Photos, scans and PDFs:** text PDFs parse directly. Scans and bill photos
+need the free Tesseract engine plus Indic packs (Hindi/Marathi/Gujarati):
+
+```powershell
+winget install UB-Mannheim.TesseractOCR
+python scripts/fetch_tessdata.py
+```
+
+Without the engine, scans are refused with a loud error — never silently
+misread. Messy workbooks (merged cells, title rows, extra sheets,
+Hindi/Marathi headers) are normalized automatically.
+
 **Option C — Docker**
 
 ```powershell
@@ -123,7 +135,7 @@ extensions/         fraud screens, auth, RAG evidence, retraining skeleton,
 web/src/            premium React UI (build with npm run build)
 gold/verify.csv     60 hand-checked rows covering all 27 labels
 specs/              design history + honest measurement logs
-scripts/            fetch_model.py, fetch_server.py
+scripts/            fetch_model.py, fetch_server.py, fetch_tessdata.py
 desktop/            PyInstaller launcher sources (see docs/RELEASING.md)
 ```
 

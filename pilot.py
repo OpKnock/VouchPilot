@@ -2,6 +2,7 @@
 # Or one command for everything: powershell -ExecutionPolicy Bypass -File start-vouchpilot.ps1
 import concurrent.futures
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -80,10 +81,21 @@ def _make_scorer():
     return scorer.StubScorer()
 
 
-def _run_pipeline(xlsx_bytes, progress_cb=None):
+def _run_pipeline(xlsx_bytes, progress_cb=None, filename="upload.xlsx"):
+    lower = filename.lower()
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
         tmp.write(xlsx_bytes)
         path = tmp.name
+    if lower.endswith((".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp")):
+        from vouch_engine import intake as intake_mod
+
+        stamped = path + ("_src.pdf" if lower.endswith(".pdf") else "_src.png")
+        os.rename(path, stamped)
+        converted = stamped + ".rows.xlsx"
+        rep = intake_mod.intake_to_xlsx(stamped, converted)
+        if rep.get("ocr_used"):
+            st.warning("Scanned document: text came from OCR — verify amounts before filing.")
+        path = converted
     data = ingest.read_excel(path)
     mapping = normalise.map_columns(data["headers"], data["rows"])
     canonical = normalise.to_canonical(data["rows"], mapping)
@@ -144,12 +156,13 @@ def kpi_cards(preds):
 if tab == "Classify":
     c1, c2 = st.columns([3, 1])
     c1.header("Classify")
-    up = st.file_uploader("Drop an .xlsx of transactions (voucher type missing)", type=["xlsx"])
+    up = st.file_uploader("Drop an .xlsx, .pdf or photo of a bill (voucher type missing)",
+                          type=["xlsx", "pdf", "png", "jpg", "jpeg"])
     run = c2.button("▶ Run classification", type="primary", use_container_width=True)
     if up is not None and run:
         bar = st.progress(0.0, "Scoring rows…")
         try:
-            preds, audits = _run_pipeline(up.read(), bar.progress)
+            preds, audits = _run_pipeline(up.read(), bar.progress, up.name)
         except Exception as exc:
             st.error("Classification failed: %s" % (exc,))
             st.stop()

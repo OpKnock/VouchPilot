@@ -533,7 +533,7 @@ html[data-theme="light"] .mobile-top { background: #17211d; }
 }
 
 /* VouchPilot readability + brand pass */
-.logo-mark.logo-img { border: none; background: none; box-shadow: none; width: 28px; height: 28px; border-radius: 7px; }
+.logo-mark.logo-img { border: none; background: none; box-shadow: none; width: auto; height: 28px; border-radius: 7px; }
 body { font-size: 15px; }
 .page-detail, .workspace strong, .profile strong, .offline-card strong, .run-file strong, .review-id strong, .decision-grid strong, .privacy-banner strong, .threshold-setting > div b, .workspace > span { font-size: 13px !important; }
 .primary-button, .secondary-button, .approve-button, .plain-button, .period-button, .text-button { font-size: 13px !important; height: 38px; }
@@ -591,4 +591,77 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .resolved-message { animation: popin .3s cubic-bezier(.2,.9,.3,1.4) both; }
 @keyframes popin { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: scale(1); } }
+
+/* ============ VouchPilot brand + launch-polish overrides ============ */
+:root {
+  --green: #10b981;
+  --green-dark: #059669;
+  --green-soft: rgb(16 185 129 / 12%);
+}
+.logo-mark.logo-img { transform: none !important; animation: none !important; }
+nav button.active { background: rgb(16 185 129 / 14%); box-shadow: inset 2px 0 #10b981; }
+::selection { background: #059669; }
+.eyebrow { color: #6ee7b7; }
+.primary-button { border-color: #059669; box-shadow: 0 0 24px rgb(16 185 129 / 28%); }
+.primary-button:hover:not(:disabled) { border-color: #10b981; box-shadow: 0 0 28px rgb(16 185 129 / 38%); }
+.accuracy-summary span, .status, .label-pill, .approve-button, .live-pill { border-color: rgb(16 185 129 / 30%); }
+.bar { background: #065f46; }
+.bar-column:nth-child(n+9) .bar { background: linear-gradient(180deg, #34d399, #059669); box-shadow: 0 0 12px rgb(16 185 129 / 35%); }
+.file-cell i, .run-file > i, .review-id > span, .health-orb, .privacy-banner > span { background: rgb(16 185 129 / 12%); }
+.label-pill { color: #6ee7b7; }
+.confidence-cell em, .run-progress i, .resource em { background: linear-gradient(90deg, #059669, #34d399); }
+.ring { background: conic-gradient(#10b981 var(--progress), #27272a 0); box-shadow: 0 0 30px rgb(16 185 129 / 22%); }
+.system-hero .section-label { color: #6ee7b7; }
+.health-orb { border-color: #059669; }
+html { scroll-behavior: auto; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+.info-strip, .faq-list, .legal-body { scroll-margin-top: 24px; }
+.page-header { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--canvas) 88%, transparent); backdrop-filter: blur(8px); padding-top: 14px; }
+.crumbs { color: var(--soft); font-size: 13px; margin: 0 0 6px; }
+.crumbs button { background: none; border: 0; color: inherit; font-size: inherit; padding: 0; }
+.crumbs button:hover { color: var(--ink); }
+body { font-size: 16px; }
+.page-header h1 { font-size: 31px; }
+h2 { font-size: 21px; }
+.section-label { font-size: 12.5px; }
+.prediction-row, .table-row, .module-row { font-size: 14px; }
+.prediction-table, .run-table { overflow-x: auto; }
+body { overflow-x: clip; }
+.skip-link { position: fixed; top: -60px; left: 12px; z-index: 100; background: #10b981; color: #04120c; font-weight: 700; padding: 10px 16px; border-radius: 8px; transition: top .2s; }
+.skip-link:focus { top: 12px; }
+.scroll-progress { position: fixed; top: 0; left: 0; height: 3px; background: #10b981; z-index: 90; width: 0; }
+.back-top { position: fixed; right: 18px; bottom: 18px; z-index: 80; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 18px; }
+.contact-fab { position: fixed; right: 18px; bottom: 72px; z-index: 80; width: 44px; height: 44px; border-radius: 50%; background: #10b981; color: #04120c; display: grid; place-items: center; font-weight: 800; text-decoration: none; }
+.cookie-banner { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 95; display: flex; gap: 12px; align-items: center; justify-content: space-between; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 96; background: rgb(0 0 0 / 55%); display: grid; place-items: center; }
+.modal { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; max-width: 420px; width: calc(100% - 32px); }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+.site-footer { margin-top: 34px; padding: 22px 4px 30px; border-top: 1px solid var(--line); display: grid; gap: 14px; }
+.site-footer nav { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.site-footer nav button { background: none; border: 0; color: var(--muted); font-size: 14px; padding: 6px 0; }
+.site-footer nav button:hover { color: var(--ink); }
+.site-footer small { color: var(--soft); font-size: 13px; }
+.faq-list details { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface); }
+.faq-list summary { cursor: pointer; font-weight: 650; font-size: 15px; }
+.faq-list p { color: var(--muted); font-size: 14.5px; }
+.legal-body p, .legal-body li { color: var(--muted); font-size: 15px; line-height: 1.65; }
+.legal-body h2 { margin-top: 22px; }
+.backdrop { position: fixed; inset: 0; z-index: 9; background: rgb(0 0 0 / 50%); }
+@media (max-width: 900px) {
+  .sidebar { transform: translateX(-102%); transition: transform .25s ease; }
+  .sidebar.open { transform: none; }
+  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  main { padding: 14px; }
+}
+@media (pointer: coarse) {
+  button, select, input[type="checkbox"] { min-height: 44px; }
+  .icon-button { min-width: 44px; }
+}
+@media print {
+  .sidebar, .mobile-top, .scroll-progress, .back-top, .contact-fab, .cookie-banner, .page-header > div:last-child { display: none !important; }
+  .app-shell { display: block; }
+  body { background: #fff; }
+}
+
+html[data-density='comfortable'] .prediction-row, html[data-density='comfortable'] .table-row { padding-top: 14px; padding-bottom: 14px; }
 

@@ -38,3 +38,5 @@ VouchPilot.exe
 # local-only editor/agent symlinks and caches
 .agents/
 .claude/
+tessdata/
+

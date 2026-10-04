@@ -895,6 +895,29 @@ def cmd_robust(args) -> int:
     return 0
 
 
+def cmd_intake(args) -> int:
+    from . import intake as intake_mod
+
+    if not os.path.exists(args.input):
+        print(f"ERROR: input not found: {args.input}", file=sys.stderr)
+        return 2
+    langs = tuple(dict.fromkeys(
+        [part.strip() for part in str(args.langs).split(",") if part.strip()]
+    )) or ("hin", "eng")
+    try:
+        report = intake_mod.intake_to_xlsx(args.input, args.out, langs)
+    except intake_mod.IntakeError as exc:
+        print(f"ERROR: intake failed ({exc})", file=sys.stderr)
+        return 2
+    if report.get("ocr_used"):
+        print("WARN: OCR was used; verify extracted fields before classifying",
+              file=sys.stderr)
+    print(f"kind={report.get('kind')} pages={report.get('pages')} "
+          f"ocr_used={report.get('ocr_used')} rows={report.get('rows')} "
+          f"-> {args.out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m vouch_engine")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1023,6 +1046,13 @@ def build_parser() -> argparse.ArgumentParser:
     robust_p.add_argument("--seed", type=int, default=7)
     robust_p.add_argument("--out", required=True)
     robust_p.set_defaults(func=cmd_robust)
+
+    intake_p = sub.add_parser("intake", help="Convert PDF/image/CSV/XLSX documents to rows XLSX")
+    intake_p.add_argument("--input", required=True)
+    intake_p.add_argument("--out", required=True)
+    intake_p.add_argument("--langs", default="hin,eng",
+                          help="OCR languages, comma separated (needs tesseract binary)")
+    intake_p.set_defaults(func=cmd_intake)
     return parser
 
 
