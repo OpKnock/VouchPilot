@@ -1,0 +1,14 @@
+{
+  "description": "Efficiently classify Indian accounting transactions into GST voucher categories using AI, ensuring accuracy and compliance for finance professionals.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  },
+  "title": "VouchPilot - Offline GST Voucher Intelligence",
+  "icons": {
+    "icon": "/logo.svg"
+  }
+}

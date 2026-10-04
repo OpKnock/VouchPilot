@@ -1,0 +1,61 @@
+Seller,Buyer,Invoice No,Date,Description,Qty,Rate,Taxable Value,CGST,SGST,IGST,Payment Mode,UTR,Narration,Currency,voucher_type,note
+National Steel,Sharma Traders,PI/26/0081,2026-07-04,steel rods,100,500,50000,4500,4500,0,,,goods received as ordered,INR,Purchase,buyer is self supplier invoice present
+Vardhman Pack,Sharma Traders,PI/26/0082,2026-07-06,packing boxes,500,20,10000,900,900,0,,,purchase with input gst,INR,Purchase,standard domestic purchase
+Sharma Traders,Nagpur Agro,SI/26/0412,2026-08-01,office chairs,10,5000,50000,4500,4500,0,,,sold on credit,INR,Sales,seller is self own series
+Sharma Traders,Akola Foods,SI/26/0413,2026-08-02,wheat bags,200,600,120000,10800,10800,0,,,regular sales invoice,INR,Sales,output gst intra-state
+Gulf Metals LLC,Sharma Traders,BE/26/0091,2026-07-20,aluminium coils,20,8000,160000,0,0,28800,,,bill of entry 88213 Nhava Sheva,USD,Import,foreign supplier plus customs fields
+Gulf Metals LLC,Sharma Traders,BE/26/0092,2026-07-22,copper wire,50,2000,100000,0,0,18000,,,CIF Mumbai freight 4000,USD,Import,CIF plus IGST on import
+Sharma Traders,Dubai Retail LLC,SB/26/0031,2026-08-05,cotton shirts,300,400,120000,0,0,0,,,shipping bill 551 LUT filed,USD,Export,foreign customer LUT bond
+Sharma Traders,Colombo Foods,SB/26/0032,2026-08-06,tea packets,1000,150,150000,0,0,0,,,FOB Chennai port code INMAA,USD,Export,Incoterms FOB no domestic gst
+National Steel,Sharma Traders,DN/26/0011,2026-08-10,steel rods damaged,10,500,-5000,-450,-450,0,,,debit note against PI260081 damaged in transit,INR,Purchase Return / Debit Note,value reversal with invoice ref
+Vardhman Pack,Sharma Traders,DN/26/0012,2026-08-11,rate difference claim,0,0,-2000,-180,-180,0,,,rate difference on PI260082,INR,Purchase Return / Debit Note,rate difference no goods move
+Sharma Traders,Nagpur Agro,CN/26/0007,2026-08-12,office chairs returned,2,5000,-10000,-900,-900,0,,,credit note against SI260412 quality issue,INR,Sales Return / Credit Note,customer return with value
+Sharma Traders,Akola Foods,CN/26/0008,2026-08-13,short weight claim,0,0,-5000,-450,-450,0,,,rate shortfall on SI260413,INR,Sales Return / Credit Note,value reduction no physical return
+National Steel,Sharma Traders,RJ/26/0003,2026-08-03,steel rods rejected,10,0,0,0,0,0,,,rejected against receipt note RN44 poor finish,INR,Rejection Out,quantity only refs receipt note
+Vardhman Pack,Sharma Traders,RJ/26/0004,2026-08-04,packing boxes torn,50,0,0,0,0,0,,,sent back to supplier quality fail,INR,Rejection Out,no value no tax
+Sharma Traders,Nagpur Agro,RJ/26/0005,2026-08-14,chairs wobble,2,0,0,0,0,0,,,customer rejection against delivery challan,INR,Rejection In,quantity only refs delivery
+Sharma Traders,Akola Foods,RJ/26/0006,2026-08-15,leak packets,20,0,0,0,0,0,,,received back from customer damaged,INR,Rejection In,inward movement no value
+,,PAY/26/0201,2026-08-06,,0,0,0,0,0,0,Bank,UTR98213,bill PI260081 paid in full,INR,Payment,bank out with bill ref
+,,PAY/26/0202,2026-08-07,,0,0,0,0,0,0,Cash,,office maintenance cash paid,INR,Payment,cash out no party
+,,RCT/26/0101,2026-08-08,,0,0,0,0,0,0,UPI,UPI55112,advance from customer adjusted later,INR,Receipt,money in with invoice ref
+,,RCT/26/0102,2026-08-09,,0,0,0,0,0,0,Cheque,CHQ2211,cheque received from Nagpur Agro,INR,Receipt,cheque in
+,,CT/26/0001,2026-08-02,,0,0,200000,0,0,0,,HDFC Current to Cash,cash deposited to bank,INR,Contra,bank to cash own ledgers
+,,CT/26/0002,2026-08-16,,0,0,150000,0,0,0,,Cash to HDFC Current,bank transfer between own accounts,INR,Contra,no external party
+,,ADV/26/0005,2026-07-28,,0,0,50000,0,0,0,Bank,UTR77001,token advance to supplier no invoice yet,INR,Advance / Prepayment,money before invoice
+,,ADV/26/0006,2026-07-29,,0,0,25000,0,0,0,Cash,,security deposit for godown,INR,Advance / Prepayment,deposit on account
+,,JV/26/0031,2026-08-31,,0,0,0,0,0,0,,,depreciation on furniture for August,INR,Journal,non cash adjustment
+,,,JV/26/0032,2026-08-31,,0,0,0,0,0,,,provision for audit fees,INR,Journal,accrual no cash
+,,EXP/26/0041,2026-08-05,shop rent August,0,0,30000,0,0,0,,,rent for warehouse,INR,Expense,service SAC no stock items
+,,EXP/26/0042,2026-08-07,electricity bill,0,0,8500,0,0,0,,,MSEDCL meter 4412,INR,Expense,utility overhead
+,,MISC/26/0001,2026-08-20,,0,0,120,0,0,0,,,GST rounding off differences,INR,Other / Miscellaneous,does not fit any category
+,,MISC/26/0002,2026-08-21,,0,0,0,0,0,0,,,unallocated suspense entry parked,INR,Other / Miscellaneous,suspense last resort
+,,PAYR/26/08,2026-08-31,,0,0,0,0,0,0,,,salary August basic HRA PF ESI net pay E114,INR,Salary / Payroll,employee pay period deductions
+,,PAYR/26/09,2026-08-31,,0,0,0,0,0,0,,,overtime plus bonus E115,INR,Salary / Payroll,payroll with overtime
+,,ATT/26/08,2026-08-31,,0,0,0,0,0,0,,,attendance August present 26 leave 2,INR,Attendance,attendance record no money
+,,ATT/26/09,2026-08-31,,0,0,0,0,0,0,,,overtime hours 14 in August,INR,Attendance,attendance overtime only
+National Steel,Sharma Traders,PO/26/0111,2026-07-25,cement bags,500,350,175000,0,0,0,,,order placed expected delivery 10 Aug,INR,Purchase Order,order no invoice no tax posting
+Vardhman Pack,Sharma Traders,PO/26/0112,2026-07-26,paint drums,100,1200,120000,0,0,0,,,supplier order rate agreed,INR,Purchase Order,buyer perspective order
+Sharma Traders,Nagpur Agro,SO/26/0201,2026-07-27,office tables,20,8000,160000,0,0,0,,,customer order delivery schedule Sept,INR,Sales Order,seller perspective order received
+Sharma Traders,Akola Foods,SO/26/0202,2026-07-28,sugar bags,1000,450,450000,0,0,0,,,bulk order 50pct advance received,INR,Sales Order,order with advance
+National Steel,Sharma Traders,RN/26/0141,2026-08-01,cement bags received,500,0,0,0,0,0,,,goods received against PO260111 supplier challan,INR,Receipt Note,quantity received no price
+Vardhman Pack,Sharma Traders,RN/26/0142,2026-08-02,paint drums received,100,0,0,0,0,0,,,unloading report attached,INR,Receipt Note,receipt without tax
+Sharma Traders,Nagpur Agro,DN-CH/26/0311,2026-08-03,office tables dispatched,20,0,0,0,0,0,,,delivery challan vehicle MH12AB1234,INR,Delivery Note,quantity dispatched challan
+Sharma Traders,Akola Foods,DN-CH/26/0312,2026-08-04,sugar bags dispatched,1000,0,0,0,0,0,,,LR copy 88123 attached,INR,Delivery Note,LR number no price
+Nashik JobWorks,Sharma Traders,JW-IN/26/0007,2026-08-06,steel plates for bending,200,0,0,0,0,0,,,job challan inward principal material,INR,Material In,non sale inward movement
+Nashik JobWorks,Sharma Traders,JW-IN/26/0008,2026-08-07,brass rods for polishing,100,0,0,0,0,0,,,received for job work no sale value,INR,Material In,job work inward
+Sharma Traders,Tailor Works,JW-OUT/26/0009,2026-08-08,fabric for stitching,300,0,0,0,0,0,,,sent to tailor challan outward,INR,Material Out,non sale outward expected return
+Sharma Traders,Polish Works,JW-OUT/26/0010,2026-08-09,wooden frames for polish,50,0,0,0,0,0,,,outward job challan process polishing,INR,Material Out,material sent for processing
+Principal PNE,Sharma Traders,JWO-IN/26/0003,2026-08-10,castings for machining,80,0,0,0,0,0,,,we process principal material charges only,INR,Job Work In Order,we are the job worker
+Principal PNE,Sharma Traders,JWO-IN/26/0004,2026-08-11,gears for grinding,40,0,0,0,0,0,,,components received processing order,INR,Job Work In Order,principal order received
+Sharma Traders,Sharma Engg,JWO-OUT/26/0005,2026-08-12,rods to job worker,120,0,0,0,0,0,,,order to Sharma Engineering expected finished rods,INR,Job Work Out Order,we send material out
+Sharma Traders,Cutter Works,JWO-OUT/26/0006,2026-08-13,sheets to cutter,200,0,0,0,0,0,,,cutting order plus scrap return,INR,Job Work Out Order,components to job worker
+,,STK-J/26/0002,2026-08-18,,0,0,0,0,0,0,,,transfer godown A to godown B 400 bags,INR,Stock Journal,internal movement no party
+,,STK-J/26/0003,2026-08-19,,0,0,0,0,0,0,,,consumption for packing 20 boxes,INR,Stock Journal,manufacturing consumption
+,,PHY/26/0001,2026-08-31,,0,0,0,0,0,0,,,physical count cement counted 495 book 500,INR,Physical Stock,stock take count variance
+,,PHY/26/0002,2026-08-31,,0,0,0,0,0,0,,,year end stock verification paints,INR,Physical Stock,counted vs book no value
+Gulf Metals LLC,Sharma Traders,BE/26/0093,2026-07-23,spare parts,10,5000,50000,0,0,9000,,,IGST paid on import port Nhava,USD,Import,tricky IGST plus port means import
+,,CT/26/0004,2026-08-22,,0,0,75000,0,0,0,,HDFC to SBI own accounts,inter bank transfer,INR,Contra,tricky bank to bank is contra
+,,EXP/26/0043,2026-08-09,stationery for office,0,0,4500,0,0,0,,,pens registers consumables,INR,Expense,tricky consumable is expense not purchase
+,,ADV/26/0007,2026-07-30,,0,0,100000,0,0,0,Bank,UTR88312,advance against SO260202 no invoice,INR,Advance / Prepayment,tricky order ref but still advance
+Sharma Traders,Nagpur Agro,CN/26/0009,2026-08-16,rate correction,0,0,-8000,-720,-720,0,,,credit note value only no goods return,INR,Sales Return / Credit Note,tricky value only still credit note
+Chennai Alloys,Sharma Traders,PI/26/0083,2026-07-08,steel plates inter-state,80,6000,480000,0,0,86400,,,Tamil Nadu supplier IGST domestic,INR,Purchase,tricky IGST domestic is purchase not import

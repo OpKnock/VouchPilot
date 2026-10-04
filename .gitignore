@@ -1,0 +1,40 @@
+﻿# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# model weights + runtimes (fetch on demand, never commit)
+models/*.gguf
+models/.cache/
+tools/llama-server/
+
+# frontend build output + deps
+web/node_modules/
+web/dist/
+
+# generated run outputs
+demo/*.jsonl
+demo/*.json
+demo/*.xlsx
+demo/*.log
+demo/*.trace
+demo/*.approvals
+demo/*.inspection
+gold/*.xlsx
+gold/*_labels.json
+gold/*_exemplars.json
+settings.json
+*.approvals.json
+*.trace.jsonl
+
+# desktop build artifacts
+desktop/build/
+desktop/dist/
+desktop/*.spec
+VouchPilot.exe
+
+# local-only editor/agent symlinks and caches
+.agents/
+.claude/
