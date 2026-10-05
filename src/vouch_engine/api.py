@@ -151,14 +151,14 @@ def _read_input(path: str, suffix: str) -> dict[str, Any]:
         # transaction sheet are handled before canonical normalization.
         return messy.read_messy_xlsx(path, pick_best=True)
 
-    try:
-        from . import intake as _intake
+    from . import intake as _intake
 
-        converted = path + ".rows.xlsx"
+    converted = path + ".rows.xlsx"
+    try:
         _intake.intake_to_xlsx(path, converted)
-        return _read_input(converted, ".xlsx")
-    except Exception as exc:
+    except (_intake.IntakeError, OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"intake failed: {exc}") from exc
+    return _read_input(converted, ".xlsx")
 
 
 def _module_status() -> dict[str, str]:
