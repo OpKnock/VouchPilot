@@ -1,4 +1,4 @@
-import type { Prediction, RunRecord } from "./api";
+import type { Prediction, RunRecord } from "./api.ts";
 
 export function applyReviewToRuns(
   runs: RunRecord[],
