@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from vouch_engine.evaluate import REPORT_KEYS
 from vouch_engine.gold import build_dataset
@@ -78,3 +78,23 @@ def test_gold_seed_reproducibility_files(tmp_path):
     assert labels1 == labels2
     # xlsx bytes may differ by embedded timestamp: compare parsed rows instead.
     assert _read_sheet_rows(first + ".xlsx") == _read_sheet_rows(second + ".xlsx")
+
+
+def test_cli_run_uses_resilient_reader_for_messy_workbook(tmp_path):
+    xlsx = str(tmp_path / "messy.xlsx")
+    wb = Workbook()
+    cover = wb.active
+    cover.title = "Cover"
+    cover["A1"] = "VouchPilot export"
+    tx = wb.create_sheet("Transactions")
+    tx.append(["Invoice No", "Narration", "Total"])
+    tx.append(["PI-101", "Steel rods purchase", 1180])
+    wb.save(xlsx)
+    wb.close()
+
+    pred = str(tmp_path / "pred.jsonl")
+    run = _run_cli("run", "--input", xlsx, "--out", pred, "--scorer", "keyword")
+    assert run.returncode == 0, run.stderr
+    rows = [json.loads(line) for line in open(pred, encoding="utf-8") if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["invoice_number"] == "PI-101"
