@@ -120,3 +120,20 @@ def test_predict_rejects_server_side_oversize_upload(monkeypatch):
     )
     assert response.status_code == 413
     assert "10 bytes" in response.json()["detail"]
+
+
+def test_predict_handles_decorative_rows_and_semicolon_csv():
+    client = TestClient(create_app())
+    body = (
+        "FY 2026-27;;\n"
+        "Invoice No;Narration;Total\n"
+        "PI-200;Office chairs purchase;59000\n"
+    ).encode("utf-8")
+    response = client.post(
+        "/predict?scorer=keyword",
+        files={"file": ("messy.csv", body, "text/csv")},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["n_rows"] == 1
+    assert payload["predictions"][0]["invoice_number"] == "PI-200"
