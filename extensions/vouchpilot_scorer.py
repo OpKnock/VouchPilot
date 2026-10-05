@@ -96,14 +96,22 @@ class VouchPilotScorer:
                 conf = float(_apply_conf(conf, float(self.temperature)))
             except Exception as exc:
                 audit['calibrate_error'] = str(exc)
-        old_top = float(top_k[0][1]) if top_k else 0.0
-        factor = (conf / old_top) if old_top > 0 else 1.0
-        top_k = [
-            [name, max(0.0, min(1.0, float(prob) * factor))]
-            for name, prob in (top_k or [[label, conf]])
-        ]
+        conf = max(0.0, min(1.0, conf))
+        if top_k:
+            remainder = max(0.0, 1.0 - conf)
+            alternatives = [(name, max(0.0, float(prob))) for name, prob in top_k[1:]]
+            alt_total = sum(prob for _, prob in alternatives)
+            if alternatives and alt_total > 0:
+                top_k = [[top_k[0][0], conf]] + [
+                    [name, remainder * prob / alt_total]
+                    for name, prob in alternatives
+                ]
+            else:
+                top_k = [[label, conf]]
+        else:
+            top_k = [[label, conf]]
         self.last = audit
-        return label, max(0.0, min(1.0, conf)), top_k
+        return label, conf, top_k
 
 
 __all__ = ['VouchPilotScorer']
