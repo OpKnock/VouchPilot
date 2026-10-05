@@ -231,31 +231,19 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health() -> dict:
-        mods = {}
-        for name in (
-            "ingest",
-            "normalise",
-            "perspective",
-            "evidence",
-            "baseline",
-            "scorer",
-            "validate",
-            "gold",
-            "evaluate",
-            "agent",
-        ):
-            try:
-                __import__("vouch_engine." + name)
-                mods[name] = "OK"
-            except Exception as exc:
-                mods[name] = f"FAIL {exc}"
-        return {"status": "ok", "version": VERSION, "modules": mods}
+        modules = _module_status()
+        failed = [name for name, status in modules.items() if status != "OK"]
+        return {
+            "status": "degraded" if failed else "ok",
+            "version": VERSION,
+            "modules": modules,
+        }
 
     @app.post("/predict")
     async def predict(
         file: UploadFile,
         scorer: str = "keyword",
-        endpoint: str = "http://127.0.0.1:8080",
+        endpoint: str = DEFAULT_LLM_ENDPOINT,
         workers: int = 1,
         challenge: bool = False,
     ) -> dict:
@@ -347,7 +335,7 @@ def create_app() -> FastAPI:
         modules = _module_status()
         server: dict[str, object] = {"url": DEFAULT_LLM_ENDPOINT, "up": False}
         try:
-            _ur.urlopen(f"{DEFAULT_LLM_ENDPOINT.rstrip("/")}/health", timeout=4)
+            _ur.urlopen(f"{DEFAULT_LLM_ENDPOINT.rstrip('/')}/health", timeout=4)
             server["up"] = True
         except Exception:
             pass
@@ -369,18 +357,19 @@ def create_app() -> FastAPI:
     def launcher():
         from fastapi.responses import FileResponse
 
-        path = "start-vouchpilot.bat"
-        if not os.path.exists(path):
+        path = Path(__file__).resolve().parents[2] / "start-vouchpilot.bat"
+        if not path.exists():
             raise HTTPException(status_code=404, detail="launcher not packaged yet")
-        return FileResponse(path, filename="VouchPilot-Launcher.bat")
+        return FileResponse(str(path), filename="VouchPilot-Launcher.bat")
 
     @app.get("/desktop-package")
     def desktop_package():
         import io as _io
         import zipfile as _zf
 
-        exe = "VouchPilot.exe"
-        if not os.path.exists(exe):
+        root = Path(__file__).resolve().parents[2]
+        exe = root / "VouchPilot.exe"
+        if not exe.exists():
             raise HTTPException(
                 status_code=404,
                 detail="desktop exe not built yet (see desktop/launcher.py)",
@@ -398,8 +387,9 @@ def create_app() -> FastAPI:
                 ("start-vouchpilot.bat", "VouchPilot-Launcher.bat"),
                 ("start-vouchpilot.ps1", "start-vouchpilot.ps1"),
             ):
-                if os.path.exists(name):
-                    zf.write(name, arcname=arc)
+                file_path = root / name
+                if file_path.exists():
+                    zf.write(file_path, arcname=arc)
             zf.writestr("README.txt", readme)
 
         from fastapi.responses import Response
