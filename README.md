@@ -33,7 +33,7 @@ powershell -ExecutionPolicy Bypass -File start-vouchpilot.ps1
 
 Open `http://127.0.0.1:8000`.
 
-The launcher starts the optional local llama.cpp server when a GGUF weight and server binary are available. Keyword and VouchPilot+ modes do not require model weights.
+The standalone Windows release contains the Python runtime, backend and built React UI, so normal users do not need Python or Node. The launcher starts the optional local llama.cpp server when a GGUF weight and server binary are available. Keyword and VouchPilot+ modes do not require model weights.
 
 **Photos, scans and PDFs**
 
@@ -69,7 +69,7 @@ For the optional local llama.cpp service (with `models/Qwen3.5-4B-Q4_K_M.gguf` p
 docker compose --profile llm up --build
 ```
 
-Set `VOUCH_MAX_UPLOAD_BYTES` to change the server-side upload ceiling (default 50 MiB). The API caps worker concurrency at 8 and permits local LLM hosts by default; intentionally remote model endpoints must be added to `VOUCH_LLM_ALLOWED_HOSTS`.
+Set `VOUCH_MAX_UPLOAD_BYTES` to change the server-side upload ceiling (default 50 MiB). The API caps worker concurrency at 8 and permits local LLM hosts by default; intentionally remote model endpoints must be added to `VOUCH_LLM_ALLOWED_HOSTS`.\n\nFor hosted/private-beta mode, set `VOUCH_SAAS_MODE=1` and explicitly configure `VOUCH_CORS_ORIGINS`. See `docs/saas.md`.
 
 ## 3. Try sample data
 
@@ -145,7 +145,7 @@ npx tsc --noEmit
 npm run build
 ```
 
-The repository CI runs the Python test suite and the frontend build on pushes and pull requests.
+The repository CI runs the Python test suite, frontend build, enterprise validation benchmark, and the Windows packaging workflow is available for tagged releases.
 
 ## License
 
