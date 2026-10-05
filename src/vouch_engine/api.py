@@ -499,7 +499,7 @@ def create_app() -> FastAPI:
             if app.state.saas_mode:
                 merged = _settings.load()
                 merged.update(patch)
-                return _settings._validate(merged)
+                return _settings.validate(merged)
             return _settings.save(patch)
         except (TypeError, ValueError, OSError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
