@@ -391,7 +391,7 @@ function Welcome({
         <section className="hero-section" id="product">
           <div className="hero-copy">
             <span className="eyebrow eyebrow-strong">
-              <StatusDot /> Offline GST voucher intelligence
+              <StatusDot /> {isHostedMode() ? "Hosted GST voucher workspace" : "Offline GST voucher intelligence"}
             </span>
             <h1>
               Make every transaction
@@ -411,7 +411,7 @@ function Welcome({
               </SecondaryButton>
             </div>
             <div className="trust-list">
-              <span><Icon name="lock" size={14} /> Local processing</span>
+              <span><Icon name="lock" size={14} /> {isHostedMode() ? "Hosted processing" : "Local processing"}</span>
               <span><Icon name="check" size={14} /> 27 voucher types</span>
               <span><Icon name="review" size={14} /> Human approval gate</span>
             </div>
@@ -474,9 +474,9 @@ function Welcome({
 
         <section className="feature-grid" id="workflow">
           {[
-            ["classify", "Classify once", "Normalize messy headers and score rows with rules or a local open-weight model."],
+            ["classify", "Classify once", isHostedMode() ? "Normalize messy headers and score rows through your configured VouchPilot service." : "Normalize messy headers and score rows with rules or a local open-weight model."],
             ["review", "Review the edge cases", "See top alternatives, confidence and evidence before approving a row."],
-            ["shield", "Keep it private", "Inference and workspace state stay local; document intake runs on-device."],
+            ["shield", "Keep it private", isHostedMode() ? "Run through your private hosted service; workspace preferences and recent runs stay in this browser." : "Inference and workspace state stay local; document intake runs on-device."],
           ].map(([icon, title, body]) => (
             <article className="feature-card" key={title}>
               <span className="feature-icon"><Icon name={icon as IconName} /></span>
@@ -492,9 +492,10 @@ function Welcome({
             <h2>Built for financial data that should not leave the room.</h2>
           </div>
           <p>
-            VouchPilot is designed around local inference. The browser talks to
-            the local API, while model weights and transaction records stay on
-            the device.
+            {isHostedMode()
+              ? "In hosted mode, documents are processed by the configured VouchPilot service. Browser preferences and recent run metadata stay in this browser; review your hosting, access-control and retention policies before sending sensitive accounting data."
+              : "VouchPilot is designed around local inference. The browser talks to the local API, while model weights and transaction records stay on the device."
+            }
           </p>
         </section>
       </main>
@@ -743,7 +744,9 @@ function Classify({
       <PageHeader
         eyebrow="CLASSIFY / NEW RUN"
         title="Turn transactions into vouchers."
-        detail="Drop a workbook, CSV, PDF or bill image. The local API handles document intake, normalization and classification."
+        detail={isHostedMode()
+          ? "Drop a workbook, CSV, PDF or bill image. The configured VouchPilot service handles document intake, normalization and classification."
+          : "Drop a workbook, CSV, PDF or bill image. The local API handles document intake, normalization and classification."}
         action={
           <div className="page-actions">
             <input
@@ -801,7 +804,7 @@ function Classify({
       <section className="run-context">
         <div><span className="section-kicker">SCORER</span><strong>{scorerName(settings.scorer)}</strong><span>{String(settings.scorer ?? "keyword") === "server" ? "llama.cpp required" : "No model download required"}</span></div>
         <div><span className="section-kicker">REVIEW CUTOFF</span><strong>{threshold}%</strong><span>Below this is routed to Review</span></div>
-        <div><span className="section-kicker">PRIVACY</span><strong><StatusDot /> Local only</strong><span>Browser → local API → local engine</span></div>
+        <div><span className="section-kicker">PRIVACY</span><strong><StatusDot /> {isHostedMode() ? "Hosted service" : "Local only"}</strong><span>{isHostedMode() ? "Browser → configured API" : "Browser → local API → local engine"}</span></div>
         <div><span className="section-kicker">RUN STATUS</span><strong>{statusText}</strong><span>{rows.length ? `${rows.filter((r) => r.needs_review).length} need review` : "Waiting for input"}</span></div>
       </section>
 
