@@ -145,7 +145,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch {
     throw new ApiError(
-      "VouchPilot could not reach the local API. Start the backend and try again.",
+      isHostedMode()
+        ? "VouchPilot could not reach the hosted service. Check the service URL and try again."
+        : "VouchPilot could not reach the local API. Start the backend and try again.",
       0,
       null,
     );
