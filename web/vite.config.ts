@@ -43,6 +43,7 @@ react(),
         '/settings': 'http://127.0.0.1:8000',
         '/system': 'http://127.0.0.1:8000',
         '/launcher': 'http://127.0.0.1:8000',
+        '/desktop-package': 'http://127.0.0.1:8000',
       },
       watch: {
         ignored: [
