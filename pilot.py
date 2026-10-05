@@ -12,7 +12,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 import pandas as pd
 import streamlit as st
 
-from vouch_engine import baseline, evidence, ingest, normalise, perspective, pilot_logic, scorer, validate
+from vouch_engine import (
+    baseline,
+    evidence,
+    ingest,
+    normalise,
+    perspective,
+    pilot_logic,
+    scorer,
+    validate,
+)
 from vouch_engine import evaluate as eval_mod
 from vouch_engine.labels import LABEL_NAMES
 
