@@ -9,6 +9,4 @@ specs
 gold
 tests
 web/node_modules
-web/src
-web/public
 opencode*
