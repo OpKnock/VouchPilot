@@ -82,6 +82,9 @@ def validate(
     *,
     predictions_path: str | Path | None = None,
     dataset_type: str = "hand-verified",
+    scorer: str = "keyword",
+    endpoint: str = "http://127.0.0.1:8080",
+    workers: int = 1,
     min_accuracy: float = 0.80,
     min_macro_f1: float = 0.70,
     max_review_rate: float = 0.60,
@@ -102,9 +105,9 @@ def validate(
     else:
         predictions, invalid = classify_raw_rows(
             gold_rows,
-            "keyword",
-            "http://127.0.0.1:8080",
-            1,
+            scorer,
+            endpoint,
+            workers,
         )
         if invalid:
             raise ValueError(f"classifier returned {invalid} invalid rows")
@@ -153,6 +156,7 @@ def validate(
     high_conf_error_rate = mean(high_confidence_errors)
     label_coverage = sum(value > 0 for value in support.values()) / len(LABEL_NAMES)
     unknown_predictions = sum(label not in LABEL_NAMES for label in y_pred)
+    unknown_ground_truth = sorted(set(labels) - set(LABEL_NAMES))
     min_support = min(support.values()) if support else 0
 
     failures = []
@@ -169,6 +173,8 @@ def validate(
         )
     if unknown_predictions:
         failures.append(f"{unknown_predictions} predictions use unknown labels")
+    if unknown_ground_truth:
+        failures.append(f"gold data contains unknown labels: {unknown_ground_truth}")
     if min_support < min_support_per_class:
         failures.append(
             f"minimum class support {min_support} < required {min_support_per_class}"
@@ -199,6 +205,7 @@ def validate(
             "correct_rows": int(sum(correct)),
             "incorrect_rows": int(len(correct) - sum(correct)),
             "unknown_predictions": unknown_predictions,
+            "unknown_ground_truth": unknown_ground_truth,
         },
         "per_class": per_class,
         "predicted_counts": predicted_counts,
@@ -234,6 +241,13 @@ def main() -> int:
         choices=("synthetic", "hand-verified", "production"),
         default="hand-verified",
     )
+    parser.add_argument(
+        "--scorer",
+        choices=("keyword", "vouchpilot", "server", "stub"),
+        default="keyword",
+    )
+    parser.add_argument("--endpoint", default="http://127.0.0.1:8080")
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--min-accuracy", type=float, default=0.80)
     parser.add_argument("--min-macro-f1", type=float, default=0.70)
     parser.add_argument("--max-review-rate", type=float, default=0.60)
@@ -246,6 +260,9 @@ def main() -> int:
         args.gold,
         predictions_path=args.predictions,
         dataset_type=args.dataset_type,
+        scorer=args.scorer,
+        endpoint=args.endpoint,
+        workers=args.workers,
         min_accuracy=args.min_accuracy,
         min_macro_f1=args.min_macro_f1,
         max_review_rate=args.max_review_rate,
