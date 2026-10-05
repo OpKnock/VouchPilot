@@ -4,6 +4,13 @@
 from __future__ import annotations
 
 
+def _safe_confidence(value: object) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def audit_recorded_vs_predicted(records: list[dict], predictions: list[dict]) -> dict:
     pred_by_id = {p.get('row_id'): p for p in predictions}
     per: dict[str, dict] = {}
@@ -28,7 +35,7 @@ def audit_recorded_vs_predicted(records: list[dict], predictions: list[dict]) ->
             cell['confusions'][predicted] = cell['confusions'].get(predicted, 0) + 1
             disagreements.append({'row_id': rid, 'invoice_number': rec.get('invoice_number', ''),
                                   'recorded': recorded, 'predicted': predicted,
-                                  'confidence': float(pred.get('confidence', 0.0))})
+                                  'confidence': _safe_confidence(pred.get('confidence', 0.0))})
     per_label = []
     for label in sorted(per):
         cell = per[label]
