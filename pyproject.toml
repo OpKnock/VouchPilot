@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vouch-engine"
-version = "0.1.0"
+version = "0.2.1"
 description = "VouchIQ VouchEngine: offline voucher classification for Indian accounting data"
 requires-python = ">=3.11"
 dependencies = [
@@ -26,8 +26,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+package-dir = {"" = "src", "extensions" = "extensions", "extensions.reconcile_zenml" = "extensions/reconcile_zenml"}
+packages = ["vouch_engine", "extensions", "extensions.reconcile_zenml"]
+
+[tool.setuptools.package-data]
+"extensions.reconcile_zenml" = ["config.yaml"]
 
 [tool.ruff]
 line-length = 100
