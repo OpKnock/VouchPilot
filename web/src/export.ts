@@ -1,6 +1,6 @@
 import type { Prediction } from "./api";
 
-const FORMULA_PREFIX = /^[=+\\-@]/;
+const FORMULA_PREFIX = /^[-=+@]/;
 
 export function csvEscape(value: unknown): string {
   let text = String(value ?? "");
