@@ -108,3 +108,15 @@ def test_desktop_package_zip_or_404(tmp_path, monkeypatch):
     resp = TestClient(create_app()).get("/desktop-package")
     assert resp.status_code == 404
     assert "exe" in resp.json()["detail"].lower()
+
+
+def test_predict_rejects_server_side_oversize_upload(monkeypatch):
+    from vouch_engine import api
+
+    monkeypatch.setattr(api, "MAX_UPLOAD_BYTES", 10)
+    response = TestClient(create_app()).post(
+        "/predict",
+        files={"file": ("transactions.csv", b"Invoice No,Total\nPI-001,1180\n", "text/csv")},
+    )
+    assert response.status_code == 413
+    assert "10 bytes" in response.json()["detail"]
