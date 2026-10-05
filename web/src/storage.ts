@@ -1,4 +1,4 @@
-import { isPrediction, type Prediction, type RunRecord } from "./api";
+import { isPrediction, type Prediction, type RunRecord } from "./api.ts";
 
 export const RUNS_KEY = "vouchpilot-runs";
 export const THEME_KEY = "vouchpilot-theme";
