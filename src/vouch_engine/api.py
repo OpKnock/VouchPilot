@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from . import baseline, evaluate as eval_mod, evidence, ingest, normalise, perspective, validate
+from . import baseline, evaluate as eval_mod, evidence, normalise, perspective, validate
 from .labels import LABEL_NAMES
 
 VERSION = "0.2.1"
@@ -120,7 +120,20 @@ def _read_input(path: str, suffix: str) -> dict[str, Any]:
 
 def _module_status() -> dict[str, str]:
     statuses: dict[str, str] = {}
-    for name in ("ingest", "normalise", "perspective", "evidence", "baseline", "scorer", "validate", "gold", "evaluate", "agent", "messy", "intake"):
+    for name in (
+        "ingest",
+        "normalise",
+        "perspective",
+        "evidence",
+        "baseline",
+        "scorer",
+        "validate",
+        "gold",
+        "evaluate",
+        "agent",
+        "messy",
+        "intake",
+    ):
         try:
             __import__("vouch_engine." + name)
             statuses[name] = "OK"
@@ -352,7 +365,8 @@ def create_app() -> FastAPI:
 
         weights: list[str] = []
         try:
-            weights = sorted(path.name for path in Path("models").glob("*.gguf"))
+            weights_dir = Path(__file__).resolve().parents[2] / "models"
+            weights = sorted(path.name for path in weights_dir.glob("*.gguf"))
         except OSError:
             pass
 
