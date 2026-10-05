@@ -8,6 +8,7 @@ import {
 } from "react";
 import { api, type LabelInfo, type Prediction, type RunRecord } from "./api";
 import { loadRuns, saveRuns, THEME_KEY } from "./storage";
+import { applyReviewToRuns } from "./review";
 
 type Area =
   | "Dashboard"
@@ -1386,6 +1387,13 @@ function App() {
 
   function commitReview(_decisions: Decision[], nextPredictions: Prediction[]) {
     setPredictions(nextPredictions);
+    setRuns((current) => {
+      const sourceRunId = current[0]?.id;
+      if (!sourceRunId) return current;
+      const next = applyReviewToRuns(current, sourceRunId, nextPredictions);
+      saveRuns(next);
+      return next;
+    });
   }
 
   if (!entered) {
