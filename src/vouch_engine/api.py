@@ -16,6 +16,14 @@ from .labels import LABEL_NAMES
 
 VERSION = "0.2.1"
 DEFAULT_LLM_ENDPOINT = os.getenv("VOUCH_LLM_ENDPOINT", "http://127.0.0.1:8080")
+DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+try:
+    MAX_UPLOAD_BYTES = max(
+        1,
+        int(os.getenv("VOUCH_MAX_UPLOAD_BYTES", str(DEFAULT_MAX_UPLOAD_BYTES))),
+    )
+except (TypeError, ValueError):
+    MAX_UPLOAD_BYTES = DEFAULT_MAX_UPLOAD_BYTES
 
 _ALLOWED_UPLOADS = {
     ".xlsx",
@@ -268,7 +276,12 @@ def create_app() -> FastAPI:
         challenge: bool = False,
         fraud: bool = True,
     ) -> dict:
-        raw = await file.read()
+        raw = await file.read(MAX_UPLOAD_BYTES + 1)
+        if len(raw) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"uploaded file exceeds the {MAX_UPLOAD_BYTES} bytes server limit",
+            )
         if not raw:
             raise HTTPException(status_code=400, detail="uploaded file is empty")
 
