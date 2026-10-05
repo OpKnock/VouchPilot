@@ -11,7 +11,8 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from . import baseline, evaluate as eval_mod, evidence, normalise, perspective, validate
+from . import baseline, evidence, normalise, perspective, validate
+from . import evaluate as eval_mod
 from .labels import LABEL_NAMES
 
 VERSION = "0.2.1"
