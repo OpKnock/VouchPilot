@@ -69,7 +69,9 @@ For the optional local llama.cpp service (with `models/Qwen3.5-4B-Q4_K_M.gguf` p
 docker compose --profile llm up --build
 ```
 
-Set `VOUCH_MAX_UPLOAD_BYTES` to change the server-side upload ceiling (default 50 MiB). The API caps worker concurrency at 8 and permits local LLM hosts by default; intentionally remote model endpoints must be added to `VOUCH_LLM_ALLOWED_HOSTS`.\n\nFor hosted/private-beta mode, set `VOUCH_SAAS_MODE=1` and explicitly configure `VOUCH_CORS_ORIGINS`. See `docs/saas.md`.
+Set `VOUCH_MAX_UPLOAD_BYTES` to change the server-side upload ceiling (default 50 MiB). The API caps worker concurrency at 8 and permits local LLM hosts by default; intentionally remote model endpoints must be added to `VOUCH_LLM_ALLOWED_HOSTS`.
+
+For hosted/private-beta mode, set `VOUCH_SAAS_MODE=1` and explicitly configure `VOUCH_CORS_ORIGINS`. See `docs/saas.md`.
 
 ## 3. Try sample data
 
