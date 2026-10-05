@@ -154,3 +154,17 @@ def test_cli_audit_uses_resilient_workbook_reader(tmp_path):
     assert run.returncode == 0, run.stderr
     result = json.loads(open(report, encoding="utf-8").read())
     assert result["agreement"] == 1.0
+
+
+def test_cli_does_not_fabricate_labels_when_pipeline_is_unavailable(tmp_path, monkeypatch):
+    from vouch_engine import __main__ as cli
+
+    monkeypatch.setattr(cli, "_load", lambda name: None if name == "ingest" else object())
+    out = str(tmp_path / "should-not-exist.jsonl")
+    run = _run_cli  # keep the subprocess helper available for other tests
+    assert run is not None
+    args = cli.build_parser().parse_args([
+        "run", "--input", str(tmp_path / "input.xlsx"), "--out", out, "--scorer", "keyword",
+    ])
+    assert cli.main(["run", "--input", str(tmp_path / "input.xlsx"), "--out", out]) == 2
+    assert not os.path.exists(out)
