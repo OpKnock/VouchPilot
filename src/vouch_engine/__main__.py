@@ -453,21 +453,11 @@ def _cmd_run_full(args, mods) -> int:
 
 
 def _cmd_run_fallback(args, validate_mod, reason: str) -> int:
-    print(f"WARN: {reason}; using fallback path", file=sys.stderr)
-    _, raw_rows = _read_xlsx_fallback(args.input)
-    preds, invalid = [], 0
-    for pos, raw in enumerate(raw_rows, start=1):
-        label = LABEL_NAMES[(pos - 1) % len(LABEL_NAMES)]
-        rec = _coerce_record(
-            pos, _extract_invoice(raw, pos), label, 0.5, [[label, 1.0]], ["fallback"]
-        )
-        try:
-            preds.append(_as_prediction(validate_mod, rec))
-        except Exception:
-            invalid += 1
-    return _finalise(
-        preds, invalid, args.out, _xlsx_out_path(args.out, args.xlsx), validate_mod, "fallback"
-    )
+    """Fail closed instead of emitting fabricated labels after a pipeline failure."""
+    _ = args
+    _ = validate_mod
+    print(f"ERROR: classification pipeline unavailable: {reason}", file=sys.stderr)
+    return 2
 
 
 def cmd_run(args) -> int:
