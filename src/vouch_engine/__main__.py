@@ -1065,7 +1065,7 @@ def build_parser() -> argparse.ArgumentParser:
     intake_p = sub.add_parser("intake", help="Convert PDF/image/CSV/XLSX documents to rows XLSX")
     intake_p.add_argument("--input", required=True)
     intake_p.add_argument("--out", required=True)
-    intake_p.add_argument("--langs", default="hin,eng",
+    intake_p.add_argument("--langs", default="hin,eng,mar,guj",
                           help="OCR languages, comma separated (needs tesseract binary)")
     intake_p.set_defaults(func=cmd_intake)
     return parser
