@@ -115,3 +115,18 @@ def test_vouchpilot_deterministic(tmp_path):
     assert main(["run", "--input", prefix + ".xlsx", "--out", b,
                  "--scorer", "vouchpilot"]) == 0
     assert open(a, encoding="utf-8").read() == open(b, encoding="utf-8").read()
+
+
+def test_pilot_top_k_probabilities_match_confidence():
+    class FakeBase:
+        def predict(self, row, tags, mask, exemplars=None):
+            return "Purchase", 0.8, [["Purchase", 0.8], ["Sales", 0.15], ["Expense", 0.05]]
+
+    sc = VouchPilotScorer(base="stub", fraud=False, firewall=False)
+    sc._base = FakeBase()
+    label, conf, top_k = sc.predict(_sales_row(), [], _mask())
+
+    assert label == "Purchase"
+    assert conf == 0.8
+    assert top_k[0][1] == conf
+    assert round(sum(float(item[1]) for item in top_k), 6) == 1.0
