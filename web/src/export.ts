@@ -1,3 +1,5 @@
+import type { Prediction } from "./api";
+
 const FORMULA_PREFIX = /^[=+\\-@]/;
 
 export function csvEscape(value: unknown): string {
@@ -8,15 +10,13 @@ export function csvEscape(value: unknown): string {
   return '"' + text.replace(/"/g, '""') + '"';
 }
 
+export function exportablePredictions(rows: Prediction[], includeEvidence: boolean): Prediction[] {
+  if (includeEvidence) return rows;
+  return rows.map(({ evidence: _evidence, ...row }) => ({ ...row, evidence: [] }));
+}
+
 export function predictionsToCsv(
-  rows: Array<{
-    row_id: number;
-    invoice_number: string;
-    voucher_type: string;
-    confidence: number;
-    needs_review: boolean;
-    evidence: string[];
-  }>,
+  rows: Prediction[],
   includeEvidence = true,
 ): string {
   const header = [
