@@ -31,6 +31,69 @@ export interface SystemInfo {
   weights: string[];
 }
 
+type PredictionResponse = {
+  predictions: Prediction[];
+  n_rows: number;
+  invalid: number;
+};
+
+function isPrediction(value: unknown): value is Prediction {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  const topK = row.top_k;
+  const evidence = row.evidence;
+  return (
+    typeof row.row_id === "number" &&
+    Number.isInteger(row.row_id) &&
+    row.row_id > 0 &&
+    typeof row.invoice_number === "string" &&
+    row.invoice_number.length > 0 &&
+    typeof row.voucher_type === "string" &&
+    typeof row.confidence === "number" &&
+    Number.isFinite(row.confidence) &&
+    row.confidence >= 0 &&
+    row.confidence <= 1 &&
+    typeof row.needs_review === "boolean" &&
+    Array.isArray(topK) &&
+    topK.every(
+      (entry) =>
+        Array.isArray(entry) &&
+        entry.length === 2 &&
+        typeof entry[0] === "string" &&
+        typeof entry[1] === "number" &&
+        Number.isFinite(entry[1]),
+    ) &&
+    Array.isArray(evidence) &&
+    evidence.every((entry) => typeof entry === "string")
+  );
+}
+
+function parsePredictionResponse(payload: unknown): PredictionResponse {
+  if (!payload || typeof payload !== "object") {
+    throw new ApiError("VouchPilot received an invalid response from the API.", 0, payload);
+  }
+
+  const body = payload as Record<string, unknown>;
+  const predictions = body.predictions;
+  const nRows = body.n_rows;
+  const invalid = body.invalid;
+
+  if (
+    !Array.isArray(predictions) ||
+    !predictions.every(isPrediction) ||
+    typeof nRows !== "number" ||
+    !Number.isInteger(nRows) ||
+    nRows < 0 ||
+    typeof invalid !== "number" ||
+    !Number.isInteger(invalid) ||
+    invalid < 0
+  ) {
+    throw new ApiError("VouchPilot received an invalid response from the API.", 0, payload);
+  }
+
+  return { predictions, n_rows: nRows, invalid };
+}
+
 const BASE =
   ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_URL as
     | string
@@ -103,14 +166,15 @@ export const api = {
   predictFile: async (
     file: File,
     params: Record<string, string>,
-  ): Promise<{ predictions: Prediction[]; n_rows: number; invalid: number }> => {
+  ): Promise<PredictionResponse> => {
     const fd = new FormData();
     fd.append("file", file);
     const query = new URLSearchParams(params).toString();
-    return req<{ predictions: Prediction[]; n_rows: number; invalid: number }>(
-      "/predict?" + query,
-      { method: "POST", body: fd },
-    );
+    const payload = await req<unknown>("/predict?" + query, {
+      method: "POST",
+      body: fd,
+    });
+    return parsePredictionResponse(payload);
   },
   launcherUrl: () => BASE + "/desktop-package",
 };
