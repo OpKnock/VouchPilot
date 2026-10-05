@@ -9,7 +9,7 @@ import {
 import { api, type LabelInfo, type Prediction, type RunRecord } from "./api";
 import { loadRuns, saveRuns, THEME_KEY } from "./storage";
 import { applyReviewToRuns } from "./review";
-import { csvEscape, exportablePredictions, predictionsToCsv } from "./export";
+import { exportablePredictions, predictionsToCsv } from "./export";
 
 type Area =
   | "Dashboard"
