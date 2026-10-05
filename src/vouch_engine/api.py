@@ -79,26 +79,60 @@ def _make_scorer(name: str, endpoint: str, fraud: bool = True):
 
 
 def _read_csv(path: str | Path) -> dict[str, Any]:
-    """Read a CSV upload without routing it through the XLSX reader."""
+    """Read CSV with delimiter sniffing and decorative-row detection."""
     with open(path, newline="", encoding="utf-8-sig") as handle:
-        rows = [dict(row) for row in csv.DictReader(handle)]
+        sample = handle.read(8192)
+        handle.seek(0)
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\\t|")
+        except csv.Error:
+            dialect = csv.excel
+        grid = list(csv.reader(handle, dialect))
 
-    rows = [row for row in rows if any(str(value).strip() for value in row.values())]
-    headers = list(rows[0].keys()) if rows else []
+    from .ingest import detect_header_row
+
+    if not grid:
+        return {
+            "headers": [],
+            "rows": [],
+            "profile": {"fill_rate": {}, "n_rows": 0, "header_row": 1},
+        }
+
+    header_idx = detect_header_row(grid, scan_limit=15)
+    raw_headers = grid[header_idx]
+    headers = []
+    seen = {}
+    for index, cell in enumerate(raw_headers):
+        name = str(cell).strip() or f"col_{index}"
+        count = seen.get(name, 0) + 1
+        seen[name] = count
+        headers.append(name if count == 1 else f"{name}_{count}")
+
+    rows = []
+    for values in grid[header_idx + 1 :]:
+        if not any(str(value).strip() for value in values):
+            continue
+        rows.append({
+            header: values[index] if index < len(values) else ""
+            for index, header in enumerate(headers)
+        })
+
+    n_rows = len(rows)
+    fill_rate = {
+        header: (
+            sum(1 for row in rows if str(row.get(header, "")).strip()) / n_rows
+            if n_rows
+            else 0.0
+        )
+        for header in headers
+    }
     return {
         "headers": headers,
         "rows": rows,
         "profile": {
-            "fill_rate": {
-                header: (
-                    sum(1 for row in rows if str(row.get(header, "")).strip()) / len(rows)
-                    if rows
-                    else 0.0
-                )
-                for header in headers
-            },
-            "n_rows": len(rows),
-            "header_row": 1,
+            "fill_rate": fill_rate,
+            "n_rows": n_rows,
+            "header_row": header_idx + 1,
         },
     }
 
