@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
-import { applyReviewToRuns } from "./review";
+import { applyReviewToRuns } from "./review.ts";
 
 const prediction = (needs_review: boolean) => ({
   row_id: 1,
