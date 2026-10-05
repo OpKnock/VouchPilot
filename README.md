@@ -1,20 +1,16 @@
-﻿# VouchPilot
+# VouchPilot
 
-**Offline GST voucher intelligence.** Upload a spreadsheet of Indian
-accounting transactions with the voucher-type column missing — VouchPilot
-returns one of 27 voucher categories per row, with confidence, evidence tags
-and an honest `needs_review` flag. No accounts, no cloud, nothing leaves
-your machine.
+**Offline GST voucher intelligence.** Upload Indian accounting data and VouchPilot returns one of 27 voucher categories per row, with confidence, evidence tags and an honest `needs_review` flag. The browser UI talks only to the local API; classification, document intake and workspace state stay on the machine.
 
-- 🧾 **Classify** — Excel in, predictions out (27 GST voucher types)
+- 🧾 **Classify** — XLSX, XLSM, CSV, PDFs and bill images
 - ✅ **Review** — human approval gate: approve, override, escalate
-- 📊 **Dashboard** — accuracy, distributions, calibration
-- 🛡️ **Fraud screen** — quishing-URL and prompt-injection checks on narrations
-- 🔌 **API + CLI** — every UI action exists as a command or endpoint
+- 📊 **Dashboard** — live distribution, confidence and saved runs
+- 🛡️ **Fraud screen** — quishing-URL and prompt-injection checks in VouchPilot+ mode
+- 🔌 **API + CLI** — core workflows are available without the web UI
 
 ---
 
-## 1. Quickstart (2 minutes, no model download)
+## 1. Quickstart
 
 ```powershell
 git clone https://github.com/OpKnock/VouchPilot.git
@@ -25,46 +21,57 @@ python -m pytest tests/ -q
 
 ## 2. Run the app
 
-**Option A — double-click (recommended for real users)**
-
-Build the web UI once, then launch everything with one file:
+Build the React UI once, then launch the local FastAPI server:
 
 ```powershell
-cd web; npm install; npm run build; cd ..
-double-click VouchPilot.exe        # or: start-vouchpilot.bat
-```
-
-Open `http://127.0.0.1:8000` in your browser. The launcher starts the AI
-model server if weights are present, then the backend, then stops everything
-when you close it. It never opens browser tabs on its own.
-
-**Option B — from source**
-
-```powershell
+cd web
+npm install
+npm run build
+cd ..
 powershell -ExecutionPolicy Bypass -File start-vouchpilot.ps1
 ```
 
-**Photos, scans and PDFs:** text PDFs parse directly. Scans and bill photos
-need the free Tesseract engine plus Indic packs (Hindi/Marathi/Gujarati):
+Open `http://127.0.0.1:8000`.
+
+The launcher starts the optional local llama.cpp server when a GGUF weight and server binary are available. Keyword and VouchPilot+ modes do not require model weights.
+
+**Photos, scans and PDFs**
+
+Text PDFs are parsed directly. Scanned PDFs and bill photos use Tesseract only when the external binary is installed; otherwise VouchPilot fails loudly instead of silently producing empty OCR.
 
 ```powershell
 winget install UB-Mannheim.TesseractOCR
 python scripts/fetch_tessdata.py
 ```
 
-Without the engine, scans are refused with a loud error — never silently
-misread. Messy workbooks (merged cells, title rows, extra sheets,
-Hindi/Marathi headers) are normalized automatically.
+Messy workbooks with title rows, merged cells, Hindi/Marathi headers and multiple sheets are routed through the resilient workbook reader before classification.
 
-**Option C — Docker**
+**Docker**
+
+The production image builds the React UI and Python runtime together; no pre-built `web/dist` is required.
 
 ```powershell
-python scripts/fetch_model.py --out models
-cd web; npm install; npm run build; cd ..
+docker build -t vouchpilot .
+docker run --rm -p 8000:8000 vouchpilot
+```
+
+Open `http://127.0.0.1:8000`.
+
+The compose file starts the app without a model server:
+
+```powershell
 docker compose up --build
 ```
 
-## 3. Try it on sample data
+For the optional local llama.cpp service (with `models/Qwen3.5-4B-Q4_K_M.gguf` present):
+
+```powershell
+docker compose --profile llm up --build
+```
+
+Set `VOUCH_MAX_UPLOAD_BYTES` to change the server-side upload ceiling (default 50 MiB).
+
+## 3. Try sample data
 
 ```powershell
 python -m vouch_engine gold --n 270 --seed 7 --out demo\gold
@@ -72,111 +79,73 @@ python -m vouch_engine run --input demo\gold.xlsx --out demo\pred.jsonl --scorer
 python -m vouch_engine evaluate --gold demo\gold_labels.json --pred demo\pred.jsonl --report demo\eval.json
 ```
 
-Or upload `demo\gold.xlsx` in the Classify tab and approve rows in Review.
+Or upload `demo\gold.xlsx` in Classify and approve the uncertain rows in Review.
 
-## 4. Scorers — pick your engine
+## 4. Scorers
 
 | Scorer | What it is | Needs |
 |---|---|---|
-| `keyword` (default) | Built-in rules classifier. Instant, surprisingly strong | Nothing |
-| `vouchpilot` | Keyword + fraud screening + calibration hooks | Nothing |
-| `server` | Qwen3.5-4B AI model, local GPU | `fetch_model.py` + `fetch_server.py` |
+| `keyword` | Fast built-in rules classifier | Nothing |
+| `vouchpilot` | Keyword + fraud/injection screening hooks | Nothing |
+| `server` | Local Qwen3.5-4B AI model | GGUF weights + llama.cpp |
 | `stub` | Deterministic placeholder for tests | Nothing |
 
-`server` needs 16 GB RAM + 6 GB VRAM recommended (8 GB RAM CPU-only works,
-slower). Gemma 4 E4B weights are supported as an alternative bake-off
-candidate — see `specs/002-grounding-reliability/results_bakeoff.md`.
+## 5. API
 
-## 5. CLI reference
-
-| Command | Does what |
-|---|---|
-| `gold` | Generate synthetic labelled datasets |
-| `run` | Classify a sheet (`--scorer`, `--workers`, `--limit/--offset`, `--exemplars`, `--margin`, `--max-challenge-rate`, `--calibrator`) |
-| `evaluate` | Accuracy, macro/micro F1, per-class report, ECE, pairwise F1 |
-| `calibrate` | Fit temperature scaling on held-out predictions |
-| `agent run` | Full loop: inspect → classify → challenge → human gate → export |
-| `agent review-template` | Emit the review queue without exporting |
-| `audit` | Retro-audit: recorded vs predicted voucher types |
-| `robust` | Perturbation sweeps (missing fields, renamed headers) |
-| `doctor` | Dependency, weights and server health check |
-
-Every command prints `WARN:` lines on degradation and never drops rows.
-
-## 6. API reference
-
-Base `http://127.0.0.1:8000`, interactive docs at `/docs`.
+Base URL: `http://127.0.0.1:8000`  
+Interactive docs: `http://127.0.0.1:8000/docs`
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/health` | GET | Liveness |
-| `/predict` | POST | Classify an uploaded `.xlsx` |
+| `/health` | GET | Liveness + module import checks |
+| `/predict` | POST | Classify XLSX, XLSM, CSV, PDF or supported bill image |
 | `/predict-rows` | POST | Classify raw JSON rows |
-| `/evaluate` | POST | Score predictions against gold labels |
-| `/labels` | GET | The 27 voucher categories |
-| `/settings` | GET/POST | Workspace preferences |
-| `/system` | GET | Module health, weights, server status |
-| `/launcher`, `/desktop-package` | GET | Desktop downloads |
+| `/evaluate` | POST | Compare predictions against gold labels |
+| `/labels` | GET | Return all 27 voucher categories |
+| `/settings` | GET/POST | Persist local workspace preferences |
+| `/system` | GET | Module health, local model endpoint and weights |
+| `/launcher` | GET | Download launcher when packaged |
+| `/desktop-package` | GET | Download packaged desktop bundle when built |
 
-## 7. Configuration
+## 6. Configuration
 
-Settings persist to `settings.json`: `scorer`, `endpoint`, `workers`
-(1 = bit-identical repro), `challenger`, `fraud`,
-`auto_approve_threshold` (review-queue cutoff shown in Review),
-`export_format`, `include_evidence`, `theme`.
+Settings persist locally in `settings.json`:
 
-## 8. Project layout
+`scorer`, `endpoint`, `workers`, `challenger`, `fraud`, `auto_approve_threshold`, `export_format`, `include_evidence`, `theme`.
+
+Supported export formats are `jsonl` and `csv`. The API also retains the legacy XLSX writer for CLI automation.
+
+## 7. Project layout
 
 ```
-src/vouch_engine/   pipeline, scorers, challenger, calibration, eval,
-                    agent loop, FastAPI service
-extensions/         fraud screens, auth, RAG evidence, retraining skeleton,
-                    vendor reports, tamper pins (optional, default off)
-web/src/            premium React UI (build with npm run build)
-gold/verify.csv     60 hand-checked rows covering all 27 labels
-specs/              design history + honest measurement logs
-scripts/            fetch_model.py, fetch_server.py, fetch_tessdata.py
-desktop/            PyInstaller launcher sources (see docs/RELEASING.md)
+src/vouch_engine/   pipeline, scorers, challenger, calibration, API, CLI
+extensions/         fraud screens and optional extension modules
+web/src/            React/Vite application
+gold/verify.csv     hand-checked verification rows
+specs/              implementation notes and measurement logs
+scripts/            model, server and OCR resource helpers
+desktop/            PyInstaller launcher sources
+tests/              unit and integration regression coverage
 ```
 
-`pilot.py` / `app.py` are the earlier Streamlit apps — still working,
-kept for reference.
+`pilot.py` / `app.py` are earlier Streamlit applications retained as reference paths. The supported desktop web experience is the React/Vite frontend served by FastAPI.
 
-## 9. Measured results
+## 8. Measurement notes
 
-Qwen3.5-4B Q4 on RTX 4050, fixed seeds:
+The keyword baseline is intentionally documented separately from the local SLM path. Synthetic gold data can overstate performance because the generated descriptions share vocabulary with the rules. Use the hand-verified set for honest comparisons.
 
-| Variant | acc | macro-F1 |
-|---|---|---|
-| Keyword, synthetic 270 | 0.796 | 0.800 |
-| Keyword, hand-verified 60 | 0.867 | 0.825 |
-| Raw SLM zero-shot (54) | 0.241 | 0.100 |
-| Grounded k=5 (54) | 0.259 | 0.114 |
-| Challenger (54 / 270) | 0.463 / 0.411 | 0.309 / 0.338 |
-| Full stack (54) | 0.500 | 0.349 |
-
-Synthetic gold flatters the keyword baseline (shared vocabulary); the
-hand-verified set is the honest check. Full logs in `specs/`.
-
-## 10. Testing
+## 9. Verification
 
 ```powershell
-python -m pytest tests/ -q        # 146 tests, offline, no weights needed
+python -m pytest tests/ -q
 ruff check src tests scripts extensions app.py pilot.py
-cd web; npx tsc --noEmit; npm run build
+cd web
+npx tsc --noEmit
+npm run build
 ```
 
-## 11. Requirements
+The repository CI runs the Python test suite and the frontend build on pushes and pull requests.
 
-- Python 3.11+, Node.js 18+ (UI build only), ~2 GB free (code + deps)
-- Optional AI path: +2.7 GB (Qwen weights) + ~650 MB (server) + NVIDIA GPU
+## License
 
-## 12. Roadmap
-
-Rate-capped challenger tuning · per-firm exemplars · human-verified gold
-expansion · Tally XML export · sub-1B edge build.
-
----
-
-Built by **CodeCarto** for the Hacktober Fest open-source AI hackathon
-(Challenge 4: voucher classification with open-weight LLMs).
+See the repository for the current license and third-party model terms.

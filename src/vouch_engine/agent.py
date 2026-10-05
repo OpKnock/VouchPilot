@@ -48,7 +48,17 @@ class AgentState:
 
 
 def inspect_sheet(mods: dict, input_path: str, state: AgentState) -> dict:
-    data = mods['ingest'].read_excel(input_path)
+    messy_mod = None
+    if os.path.splitext(input_path)[1].lower() in {'.xlsx', '.xlsm'}:
+        try:
+            from . import messy as messy_mod
+        except Exception:
+            messy_mod = None
+    data = (
+        messy_mod.read_messy_xlsx(input_path, pick_best=True)
+        if messy_mod is not None
+        else mods['ingest'].read_excel(input_path)
+    )
     state.log('inspect', 'inspect_sheet', None, 'read excel')
     headers, raw_rows = list(data.get('headers', [])), list(data.get('rows', []))
     mapping = mods['normalise'].map_columns(headers, raw_rows)

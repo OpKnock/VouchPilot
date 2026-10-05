@@ -25,3 +25,17 @@ Copy-Item dist\VouchPilot.exe ..\VouchPilot.exe
   `tools/llama-server/`, `web/dist` (see .gitignore).
 - The exe must work from any working directory (absolute paths only).
 - After rebuilding: API up + UI shell served + full pytest before sharing.
+
+
+## Web deployment
+
+The recommended deployment artifact is the Docker image. It builds the Vite frontend and includes the FastAPI backend plus top-level extensions. No model weights are baked into the image.
+
+For a CPU-only deployment, use the image without the optional `llm` compose profile and keep the workspace on `keyword` or `vouchpilot` mode. For local model inference, mount the GGUF under `models/` and start the optional compose profile.
+
+Before release, verify:
+- `GET /health` returns HTTP 200.
+- `GET /labels` reports 27 labels.
+- A CSV and messy XLSX upload both produce predictions.
+- Review decisions update the saved run status.
+- Production build and Docker image build pass in CI.

@@ -254,7 +254,7 @@ def check_narration(text: str) -> tuple[int, str]:
     if entropy >= 4.6 and len(text) >= 24:
         total += min(12, int((entropy - 4.5) * 10))
     if longest_base64_run(text) >= 32:
-        total += 10
+        total += 12
     if any(is_hex_payload(w) for w in _TOKEN_RE.findall(text)):
         total += 8
     score = min(100, total)

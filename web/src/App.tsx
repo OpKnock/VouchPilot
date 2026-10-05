@@ -1,9 +1,28 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { api, type LabelInfo, type Prediction, type RunRecord } from "./api";
+import { loadRuns, saveRuns, THEME_KEY } from "./storage";
+import { applyReviewToRuns } from "./review";
 
-type Area = "Dashboard" | "Classify" | "Review" | "System" | "Settings"
-  | "Privacy" | "Terms" | "Cookies" | "Refunds";
+type Area =
+  | "Dashboard"
+  | "Classify"
+  | "Review"
+  | "System"
+  | "Settings"
+  | "Privacy"
+  | "Terms"
+  | "Cookies"
+  | "Refunds";
 type Theme = "light" | "dark";
+type Settings = Record<string, unknown>;
+
 type IconName =
   | "dashboard"
   | "classify"
@@ -28,661 +47,1453 @@ type IconName =
   | "sun"
   | "moon";
 
-const nav: { label: Area; icon: IconName; count?: number }[] = [
+const NAV: { label: Area; icon: IconName }[] = [
   { label: "Dashboard", icon: "dashboard" },
   { label: "Classify", icon: "classify" },
-  { label: "Review", icon: "review", count: 12 },
+  { label: "Review", icon: "review" },
   { label: "System", icon: "server" },
   { label: "Settings", icon: "system" },
 ];
 
-type Settings = Record<string, unknown>;
-
 const SCORER_NAMES: Record<string, string> = {
   keyword: "Instant rules",
-  vouchpilot: "VouchPilot+ fraud screen",
-  stub: "Quick demo",
-  server: "Qwen3.5-4B AI model",
+  vouchpilot: "VouchPilot+",
+  stub: "Demo scorer",
+  server: "Local Qwen model",
 };
+
+const FILE_TYPES = ".xlsx,.xlsm,.csv,.pdf,.png,.jpg,.jpeg,.tiff,.bmp,.webp";
 
 function scorerName(id: unknown): string {
   return SCORER_NAMES[String(id ?? "keyword")] ?? String(id ?? "keyword");
 }
 
-function downloadJson(filename: string, data: unknown) {  const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
+function downloadBlob(filename: string, data: BlobPart, type: string) {
+  const blob = new Blob([data], { type });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 250);
 }
 
-function useCountUp(target: number, duration = 750): number {
-  const [val, setVal] = useState(0);
+function downloadJson(filename: string, data: unknown) {
+  downloadBlob(filename, JSON.stringify(data, null, 2), "application/json");
+}
+
+function downloadJsonl(filename: string, rows: unknown[]) {
+  downloadBlob(
+    filename,
+    rows.map((row) => JSON.stringify(row)).join("\n") + "\n",
+    "application/x-ndjson",
+  );
+}
+
+function csvEscape(value: unknown): string {
+  const text = String(value ?? "");
+  return '"' + text.replace(/"/g, '""') + '"';
+}
+
+function exportablePredictions(rows: Prediction[], includeEvidence: boolean): Prediction[] {
+  if (includeEvidence) return rows;
+  return rows.map(({ evidence: _evidence, ...row }) => ({ ...row, evidence: [] }));
+}
+
+function predictionsToCsv(rows: Prediction[], includeEvidence = true): string {
+  const header = [
+    "row_id",
+    "invoice_number",
+    "voucher_type",
+    "confidence",
+    "needs_review",
+    ...(includeEvidence ? ["evidence"] : []),
+  ];
+  return [
+    header.join(","),
+    ...rows.map((row) =>
+      [
+        row.row_id,
+        csvEscape(row.invoice_number),
+        csvEscape(row.voucher_type),
+        row.confidence.toFixed(4),
+        row.needs_review,
+        ...(includeEvidence ? [csvEscape(row.evidence.join(" | "))] : []),
+      ].join(","),
+    ),
+  ].join("\n");
+}
+
+function useCountUp(target: number, duration = 650): number {
+  const [value, setValue] = useState(target);
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setVal(target);
+      setValue(target);
       return;
     }
+    const from = value;
+    const start = performance.now();
     let raf = 0;
-    const t0 = performance.now();
-    function tick(t: number) {
-      const p = Math.min(1, (t - t0) / duration);
-      setVal(target * (1 - Math.pow(1 - p, 3)));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    }
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(from + (target - from) * eased);
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [target, duration]);
-  return val;
+  return value;
 }
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
-  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
   const paths: Record<IconName, ReactNode> = {
-    dashboard: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
-    classify: <><path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" /><path d="M14 3v6h6M8 13h8M8 17h5" /></>,
-    review: <><path d="M9 11l2 2 4-4" /><path d="M12 22c5-2 8-5 8-10V5l-8-3-8 3v7c0 5 3 8 8 10Z" /></>,
-    system: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z" /></>,
-    shield: <><path d="M12 22c5-2 8-5 8-10V5l-8-3-8 3v7c0 5 3 8 8 10Z" /><path d="M9 12l2 2 4-5" /></>,
+    dashboard: (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </>
+    ),
+    classify: (
+      <>
+        <path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
+        <path d="M14 3v6h6M8 13h8M8 17h5" />
+      </>
+    ),
+    review: (
+      <>
+        <path d="M9 11l2 2 4-4" />
+        <path d="M12 22c5-2 8-5 8-10V5l-8-3-8 3v7c0 5 3 8 8 10Z" />
+      </>
+    ),
+    system: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
+      </>
+    ),
+    shield: (
+      <>
+        <path d="M12 22c5-2 8-5 8-10V5l-8-3-8 3v7c0 5 3 8 8 10Z" />
+        <path d="M9 12l2 2 4-5" />
+      </>
+    ),
     chevron: <path d="m9 18 6-6-6-6" />,
-    upload: <><path d="M12 16V4M7 9l5-5 5 5M5 20h14" /></>,
-    search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
+    upload: (
+      <>
+        <path d="M12 16V4M7 9l5-5 5 5M5 20h14" />
+      </>
+    ),
+    search: (
+      <>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-4-4" />
+      </>
+    ),
     filter: <path d="M4 5h16M7 12h10M10 19h4" />,
-    more: <><circle cx="5" cy="12" r=".7" fill="currentColor" /><circle cx="12" cy="12" r=".7" fill="currentColor" /><circle cx="19" cy="12" r=".7" fill="currentColor" /></>,
+    more: (
+      <>
+        <circle cx="5" cy="12" r=".8" fill="currentColor" />
+        <circle cx="12" cy="12" r=".8" fill="currentColor" />
+        <circle cx="19" cy="12" r=".8" fill="currentColor" />
+      </>
+    ),
     check: <path d="m5 12 4 4L19 6" />,
-    alert: <><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.6 2.5 17a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" /></>,
-    arrow: <><path d="M5 12h14M14 7l5 5-5 5" /></>,
-    file: <><path d="M5 3h10l4 4v14H5z" /><path d="M14 3v5h5M8 13h8M8 17h6" /></>,
-    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
-    server: <><rect x="3" y="4" width="18" height="6" rx="2" /><rect x="3" y="14" width="18" height="6" rx="2" /><path d="M7 7h.01M7 17h.01" /></>,
-    database: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7" /></>,
-    cpu: <><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3M10 10h4v4h-4z" /></>,
-    lock: <><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
-    spark: <><path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3Z" /><path d="m18.5 15 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3Z" /></>,
-    sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
+    alert: (
+      <>
+        <path d="M12 9v4M12 17h.01" />
+        <path d="M10.3 3.6 2.5 17a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" />
+      </>
+    ),
+    arrow: (
+      <>
+        <path d="M5 12h14M14 7l5 5-5 5" />
+      </>
+    ),
+    file: (
+      <>
+        <path d="M5 3h10l4 4v14H5z" />
+        <path d="M14 3v5h5M8 13h8M8 17h6" />
+      </>
+    ),
+    clock: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </>
+    ),
+    server: (
+      <>
+        <rect x="3" y="4" width="18" height="6" rx="2" />
+        <rect x="3" y="14" width="18" height="6" rx="2" />
+        <path d="M7 7h.01M7 17h.01" />
+      </>
+    ),
+    database: (
+      <>
+        <ellipse cx="12" cy="5" rx="8" ry="3" />
+        <path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7" />
+      </>
+    ),
+    cpu: (
+      <>
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+        <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3M10 10h4v4h-4z" />
+      </>
+    ),
+    lock: (
+      <>
+        <rect x="5" y="10" width="14" height="11" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      </>
+    ),
+    spark: (
+      <>
+        <path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3Z" />
+        <path d="m18.5 15 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3Z" />
+      </>
+    ),
+    sun: (
+      <>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </>
+    ),
     moon: <path d="M20.8 15.3A9 9 0 0 1 8.7 3.2 9 9 0 1 0 20.8 15.3Z" />,
   };
   return <svg {...common}>{paths[name]}</svg>;
 }
 
-function Logo() {
-  return <div className="logo"><img className="logo-mark logo-img" src="/logo.png" alt="VouchPilot" height={28} /><span>VouchPilot</span></div>;
+function Logo({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`brand ${compact ? "brand-compact" : ""}`}>
+      <img src="/logo.png" alt="" width={28} height={28} />
+      <span>VouchPilot</span>
+    </div>
+  );
 }
 
-function ThemeToggle({ theme, onToggle, labelled = false }: { theme: Theme; onToggle: () => void; labelled?: boolean }) {
-  return <button className={`theme-toggle ${labelled ? "labelled" : ""}`} onClick={onToggle} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}>
-    <span className={theme === "light" ? "active" : ""}><Icon name="sun" size={14} /></span>
-    <span className={theme === "dark" ? "active" : ""}><Icon name="moon" size={14} /></span>
-    {labelled && <b>{theme === "light" ? "Light" : "Dark"} mode</b>}
-  </button>;
+function ThemeToggle({
+  theme,
+  onToggle,
+}: {
+  theme: Theme;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      className="theme-switch"
+      onClick={onToggle}
+      aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+    >
+      <span className={theme === "light" ? "active" : ""}>
+        <Icon name="sun" size={14} />
+      </span>
+      <span className={theme === "dark" ? "active" : ""}>
+        <Icon name="moon" size={14} />
+      </span>
+    </button>
+  );
 }
 
-function Welcome({ runs, onEnter, onExplore, theme, onThemeToggle }: { runs: RunRecord[]; onEnter: () => void; onExplore: () => void; theme: Theme; onThemeToggle: () => void }) {
-  const last = runs[0];
-  return <div className="welcome">
-    <header className="welcome-nav">
-      <Logo />
-      <div className="welcome-links"><a href="#platform">Platform</a><a href="#security">Security</a><a href="#architecture">Architecture</a></div>
-      <div className="welcome-actions"><ThemeToggle theme={theme} onToggle={onThemeToggle} /><a className="secondary-button" href="/desktop-package" download>Download desktop app</a><button className="primary-button" onClick={onEnter}>Open workspace <Icon name="arrow" size={15} /></button></div>
+function StatusDot({ tone = "good" }: { tone?: "good" | "warn" | "bad" }) {
+  return <i className={`status-dot ${tone}`} aria-hidden="true" />;
+}
+
+function PrimaryButton({
+  children,
+  onClick,
+  disabled,
+  type = "button",
+  className = "",
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  type?: "button" | "submit";
+  className?: string;
+}) {
+  return (
+    <button
+      type={type}
+      className={`btn btn-primary ${className}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryButton({
+  children,
+  onClick,
+  disabled,
+  className = "",
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      className={`btn btn-secondary ${className}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PageHeader({
+  eyebrow,
+  title,
+  detail,
+  action,
+}: {
+  eyebrow: string;
+  title: string;
+  detail: string;
+  action?: ReactNode;
+}) {
+  return (
+    <header className="page-header">
+      <div className="page-heading">
+        <p className="eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+        <p>{detail}</p>
+      </div>
+      {action ? <div className="page-actions">{action}</div> : null}
     </header>
-    <main className="welcome-main">
-      <section className="welcome-hero enter">
-        <div className="model-active"><i className="online-dot" />Open-weight AI · runs on your machine</div>
-        <h1>Every voucher in your books,<br /><span>accounted for.</span></h1>
-        <p>Upload a workbook of Indian accounting transactions. VouchPilot suggests the right GST voucher for every row, shows its evidence, and asks you to approve the uncertain ones. Nothing leaves your machine.</p>
-        <div className="hero-actions"><button className="primary-button hero-primary" onClick={onEnter}>Enter VouchPilot <Icon name="arrow" size={16} /></button><button className="secondary-button" onClick={onExplore}><Icon name="shield" size={16} />Explore security</button></div>
-        <div className="trust-row"><span><Icon name="lock" size={14} />Private by design</span><span><Icon name="check" size={14} />27 GST voucher types</span><span><Icon name="spark" size={14} />Human approval gate</span></div>
-      </section>
-      <section className="welcome-preview enter delay-1">
-        <div className="preview-glow" />
-        <div className="preview-window">
-          <div className="preview-top"><div><i /><i /><i /></div><span>{last ? `On-device run · ${last.file}` : "On-device run · your file here"}</span><b><i className="online-dot" />{last ? "DONE" : "READY"}</b></div>
-          <div className="preview-heading"><div><span>CLASSIFICATION RUN</span><h2>{last ? `${last.rows} transactions processed` : "Upload a workbook to begin"}</h2></div><div><strong>{last ? last.status : "—"}</strong><span>STATUS</span></div></div>
-          <div className="preview-table">
-            <div className="preview-row preview-head"><span>NARRATION / DETAILS</span><span>TAX MODE</span><span>PREDICTED VOUCHER</span><span>CONFIDENCE</span><span>STATUS</span></div>
-            {(last && last.predictions.length ? last.predictions.slice(0, 3).map((p) => ({
-              key: p.row_id, c0: p.invoice_number, c1: p.evidence[0] ?? "—",
-              c2: p.voucher_type, conf: Math.round(p.confidence * 100), review: p.needs_review,
-            })) : [
-              { key: "s1", c0: "SI/26-27/0412 · office chairs", c1: "CGST + SGST", c2: "Sales", conf: 97, review: false },
-              { key: "s2", c0: "PI/26-0081 · steel rods", c1: "Input GST", c2: "Purchase", conf: 93, review: false },
-              { key: "s3", c0: "ADV/26-0005 · token advance", c1: "No invoice yet", c2: "Advance", conf: 58, review: true },
-            ]).map((r, index) => <div className={`preview-row ${r.review ? "needs-review" : ""}`} key={r.key}>
-              <span>{r.c0}</span><span><b>{r.c1}</b></span><span><b className="voucher-chip">{r.c2}</b></span>
-              <span className="preview-confidence"><i><em style={{ width: `${r.conf}%` }} /></i><b>{r.conf}%</b></span>
-              <span className={r.review ? "preview-review" : "preview-approved"}>{r.review ? "Review" : "Approved"}</span>
-            </div>)}
-          </div>
-        </div>
-      </section>
-      <section className="welcome-stats enter delay-2"><div><strong>Private</strong><span>By design, always</span></div><div><strong>27</strong><span>GST voucher categories</span></div><div><strong>146</strong><span>Automated checks green</span></div><div><strong>0</strong><span>Cloud dependencies</span></div></section>
-      <section className="info-strip enter delay-3">
-        <div className="panel" id="platform"><p className="section-label">PLATFORM</p><h2>Classify, review, export</h2><p>Upload any workbook, get a voucher label with confidence and evidence per row, approve the uncertain ones, export JSON or CSV. Instant rules, Qwen3.5-4B and Gemma 4 E4B scoring plus fraud screening, all switchable in Settings.</p></div>
-        <div className="panel" id="security"><p className="section-label">SECURITY</p><h2>Private by design</h2><p>Quishing-URL and prompt-injection screening on every narration, SHA-256 tamper pins on exports, single-use action tokens. Nothing leaves this machine. No accounts, no signup, no cloud.</p></div>
-        <div className="panel" id="architecture"><p className="section-label">ARCHITECTURE</p><h2>Pipeline, not a wrapper</h2><p>Ingest, schema normaliser, perspective resolver, evidence extractor, constrained SLM scoring, pairwise challenger, human gate, validated export. One FastAPI process serves the UI and the API offline.</p></div>
-      </section>
-      <section className="faq-list enter">
-        <p className="section-label">QUESTIONS</p><h2>Asked before you ask</h2>
-        <details><summary>Do I need to sign up or pay?</summary><p>No. There are no accounts and no payments. Download, run, classify.</p></details>
-        <details><summary>What files can I upload?</summary><p>Excel and CSV work directly. PDFs and bill photos go through built-in text extraction and OCR first; scans need the free Tesseract engine installed (one command, guided in the app).</p></details>
-        <details><summary>How accurate is it?</summary><p>The rules engine scores about 0.80 macro-F1 on our test sets; AI layers are measured honestly in the open results log. Every uncertain row is flagged for your approval instead of being silently filed.</p></details>
-        <details><summary>Which languages work?</summary><p>English plus Hindi and Marathi headers and narrations. The AI models read all three; the rules engine is strongest in English.</p></details>
-        <details><summary>What computer do I need?</summary><p>Any 8 GB Windows machine for rules mode. The AI model wants 16 GB RAM and an NVIDIA GPU, and it still never sends data anywhere.</p></details>
-      </section>
-    </main>
-  </div>;
+  );
 }
 
-function PageHeader({ eyebrow, title, detail, action }: { eyebrow: string; title: string; detail: string; action?: ReactNode }) {
-  return <header className="page-header enter">
-    <div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="page-detail">{detail}</p></div>
-    {action}
-  </header>;
-}
-
-function Metric({ label, value, delta, tone = "neutral" }: { label: string; value: string; delta: string; tone?: "neutral" | "good" | "warn" }) {
-  return <div className="metric-card">
-    <div className="metric-top"><span>{label}</span><Icon name="more" size={16} /></div>
-    <strong>{value}</strong>
-    <p className={tone}><span>{tone === "good" ? "↑" : tone === "warn" ? "!" : "·"}</span>{delta}</p>
-  </div>;
-}
-
-function Dashboard({ navigate, runs, predictions }: { navigate: (area: Area) => void; runs: RunRecord[]; predictions: Prediction[] }) {
-  const need = predictions.filter((p) => p.needs_review).length;
-  const total = runs.reduce((s, r) => s + r.rows, 0);
-  const mean = predictions.length
-    ? (predictions.reduce((s, p) => s + p.confidence, 0) / predictions.length) * 100 : 0;
-  const counts: Record<string, number> = {};
-  predictions.forEach((p) => { counts[p.voucher_type] = (counts[p.voucher_type] || 0) + 1; });
-  const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 12);
-  const max = Math.max(1, ...top.map((t) => t[1]));
+function Welcome({
+  runs,
+  theme,
+  onThemeToggle,
+  onEnter,
+  onSystem,
+}: {
+  runs: RunRecord[];
+  theme: Theme;
+  onThemeToggle: () => void;
+  onEnter: () => void;
+  onSystem: () => void;
+}) {
   const last = runs[0];
-  const animTotal = Math.round(useCountUp(total));
-  const animMean = useCountUp(mean);
-  const animNeed = Math.round(useCountUp(need));
-  return <div className="view">
-    <PageHeader eyebrow="ON-DEVICE AI · OFFLINE" title="Every voucher in your books, accounted for." detail={total ? `${animTotal} transactions classified across ${runs.length} batch${runs.length === 1 ? "" : "es"} on this machine.` : "Upload a workbook in Classify to see live numbers here."} action={<button className="primary-button" onClick={() => navigate("Classify")}><Icon name="upload" size={16} />New classification</button>} />
-    <section className="metrics-grid enter delay-1">
-      <Metric label="Transactions classified" value={String(animTotal)} delta={runs.length ? `${runs.length} batches` : "no batches yet"} tone={runs.length ? "good" : "neutral"} />
-      <Metric label="Mean confidence" value={predictions.length ? `${animMean.toFixed(1)}%` : "—"} delta="current batch" tone="neutral" />
-      <Metric label="Needs review" value={String(animNeed)} delta="human approval gate" tone={need ? "warn" : "good"} />
-      <Metric label="Last accuracy" value={last?.accuracy != null ? `${(last.accuracy * 100).toFixed(1)}%` : "—"} delta={last ? last.file : "needs gold labels"} tone="neutral" />
-    </section>
-    <section className="dashboard-grid enter delay-2">
-      <div className="panel accuracy-panel">
-        <div className="panel-heading"><div><p className="section-label">DISTRIBUTION</p><h2>Predicted voucher types</h2></div></div>
-        <div className="accuracy-summary"><strong>{predictions.length}</strong><span>rows in current batch</span></div>
-        <div className="chart-wrap">
-          <div className="axis"><span>{max}</span><span>{Math.round(max / 2)}</span><span>0</span></div>
-          <div className="bar-chart">{top.length ? top.map(([label, n], i) => <div className="bar-column" key={label}><span className="bar" style={{ height: `${Math.max(4, (n / max) * 100)}%` }} /><small>{label.split(" ")[0].slice(0, 6)}</small></div>) : <p>No predictions yet.</p>}</div>
+  const recentRows = last?.predictions?.slice(0, 3) ?? [];
+  return (
+    <div className="marketing">
+      <header className="marketing-nav">
+        <Logo />
+        <nav aria-label="Marketing">
+          <a href="#product">Product</a>
+          <a href="#privacy">Privacy</a>
+          <a href="#workflow">Workflow</a>
+        </nav>
+        <div className="marketing-actions">
+          <ThemeToggle theme={theme} onToggle={onThemeToggle} />
+          <a className="btn btn-secondary" href="/desktop-package" download>
+            Desktop
+          </a>
+          <PrimaryButton onClick={onEnter}>
+            Open workspace <Icon name="arrow" size={15} />
+          </PrimaryButton>
         </div>
-      </div>
-      <div className="panel review-panel">
-        <div className="panel-heading"><div><p className="section-label">ATTENTION</p><h2>Review queue</h2></div><button className="icon-button" aria-label="More options"><Icon name="more" /></button></div>
-        <div className="review-number"><strong>{need}</strong><span>rows need a decision</span></div>
-        <div className="queue-track"><span style={{ width: `${predictions.length ? Math.round((need / predictions.length) * 100) : 0}%` }} /></div>
-        <div className="queue-legend"><span><i className="uncertain-dot" />Low confidence <b>{need}</b></span></div>
-        <button className="text-button" onClick={() => navigate("Review")}>Open review queue <Icon name="arrow" size={15} /></button>
-      </div>
-    </section>
-    <section className="panel recent-panel enter delay-3">
-      <div className="panel-heading"><div><p className="section-label">RECENT ACTIVITY</p><h2>Classification runs</h2></div><button className="secondary-button" onClick={() => navigate("Classify")}>View all runs</button></div>
-      <div className="run-table">
-        <div className="table-row table-head"><span>FILE</span><span>ROWS</span><span>ACCURACY</span><span>STATUS</span><span>COMPLETED</span><span /></div>
-        {runs.length ? runs.slice(0, 5).map((row) => <div className="table-row" key={row.file + row.completed}><span className="file-cell"><i><Icon name="file" size={15} /></i>{row.file}</span><span>{row.rows}</span><span>{row.accuracy != null ? `${(row.accuracy * 100).toFixed(1)}%` : "—"}</span><span><b className={`status ${row.status === "Completed" ? "" : "review"}`}>{row.status}</b></span><span>{row.completed}</span><button className="icon-button" aria-label={`Download ${row.file} predictions`} title="Download predictions JSON" onClick={() => downloadJson(`${row.file}.predictions.json`, row.predictions)}><Icon name="arrow" size={16} /></button></div>) : <div className="table-row"><span>No runs yet — classify a workbook to begin.</span><span /><span /><span /><span /><span /></div>}
-      </div>
-    </section>
-  </div>;
+      </header>
+
+      <main>
+        <section className="hero-section" id="product">
+          <div className="hero-copy">
+            <span className="eyebrow eyebrow-strong">
+              <StatusDot /> Offline GST voucher intelligence
+            </span>
+            <h1>
+              Make every transaction
+              <span> auditable.</span>
+            </h1>
+            <p>
+              Upload accounting data, classify transactions into 27 GST voucher
+              categories, inspect the evidence, and route uncertain rows to a
+              human reviewer.
+            </p>
+            <div className="hero-actions">
+              <PrimaryButton onClick={onEnter}>
+                Start a classification <Icon name="arrow" size={16} />
+              </PrimaryButton>
+              <SecondaryButton onClick={onSystem}>
+                <Icon name="shield" size={16} /> Inspect runtime
+              </SecondaryButton>
+            </div>
+            <div className="trust-list">
+              <span><Icon name="lock" size={14} /> Local processing</span>
+              <span><Icon name="check" size={14} /> 27 voucher types</span>
+              <span><Icon name="review" size={14} /> Human approval gate</span>
+            </div>
+          </div>
+
+          <div className="hero-product">
+            <div className="hero-product-top">
+              <div className="window-lights"><i /><i /><i /></div>
+              <span>{last ? `Latest run · ${last.file}` : "Ready for your workbook"}</span>
+              <span className="runtime-badge"><StatusDot /> Local</span>
+            </div>
+            <div className="hero-product-body">
+              <div className="hero-product-title">
+                <div>
+                  <span className="section-kicker">CLASSIFICATION RUN</span>
+                  <h2>{last ? `${last.rows.toLocaleString()} transactions` : "Your results will appear here"}</h2>
+                </div>
+                <div className="hero-score">
+                  <strong>{last ? last.status : "READY"}</strong>
+                  <span>STATUS</span>
+                </div>
+              </div>
+              <div className="mini-table">
+                {recentRows.length
+                  ? recentRows.map((row) => (
+                      <div className="mini-row" key={row.row_id}>
+                        <div>
+                          <strong>{row.invoice_number}</strong>
+                          <span>{row.evidence[0] ?? "Evidence captured"}</span>
+                        </div>
+                        <span className="tag">{row.voucher_type}</span>
+                        <strong className={row.needs_review ? "text-warn" : "text-good"}>
+                          {Math.round(row.confidence * 100)}%
+                        </strong>
+                      </div>
+                    ))
+                  : ["PI/26-0081", "SI/26-0412", "PAY/26-0037"].map((invoice, index) => (
+                      <div className="mini-row" key={invoice}>
+                        <div>
+                          <strong>{invoice}</strong>
+                          <span>{["Input GST", "Output GST", "Bank / UTR"][index]}</span>
+                        </div>
+                        <span className="tag">{["Purchase", "Sales", "Payment"][index]}</span>
+                        <strong className={index === 2 ? "text-warn" : "text-good"}>
+                          {[93, 97, 61][index]}%
+                        </strong>
+                      </div>
+                    ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="stat-ribbon">
+          <div><strong>27</strong><span>GST voucher categories</span></div>
+          <div><strong>3</strong><span>Input paths · XLSX / CSV / documents</span></div>
+          <div><strong>0</strong><span>Required cloud accounts</span></div>
+          <div><strong>1</strong><span>Human gate before filing</span></div>
+        </section>
+
+        <section className="feature-grid" id="workflow">
+          {[
+            ["classify", "Classify once", "Normalize messy headers and score rows with rules or a local open-weight model."],
+            ["review", "Review the edge cases", "See top alternatives, confidence and evidence before approving a row."],
+            ["shield", "Keep it private", "Inference and workspace state stay local; document intake runs on-device."],
+          ].map(([icon, title, body]) => (
+            <article className="feature-card" key={title}>
+              <span className="feature-icon"><Icon name={icon as IconName} /></span>
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </section>
+
+        <section className="privacy-section" id="privacy">
+          <div>
+            <span className="section-kicker">PRIVACY FIRST</span>
+            <h2>Built for financial data that should not leave the room.</h2>
+          </div>
+          <p>
+            VouchPilot is designed around local inference. The browser talks to
+            the local API, while model weights and transaction records stay on
+            the device.
+          </p>
+        </section>
+      </main>
+    </div>
+  );
 }
 
-function Classify({ settings, initial, onDone }: { settings: Settings; initial: Prediction[]; onDone: (run: RunRecord, preds: Prediction[]) => void }) {
+function MetricCard({
+  label,
+  value,
+  detail,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "neutral" | "good" | "warn";
+}) {
+  return (
+    <article className={`metric-card tone-${tone}`}>
+      <div className="metric-label">{label}</div>
+      <strong>{value}</strong>
+      <span>{detail}</span>
+    </article>
+  );
+}
+
+function Dashboard({
+  navigate,
+  runs,
+  predictions,
+  scorer,
+}: {
+  navigate: (area: Area) => void;
+  runs: RunRecord[];
+  predictions: Prediction[];
+  scorer: string;
+}) {
+  const reviewCount = predictions.filter((p) => p.needs_review).length;
+  const total = predictions.length || runs.reduce((sum, run) => sum + run.rows, 0);
+  const confidence =
+    predictions.length > 0
+      ? (predictions.reduce((sum, row) => sum + row.confidence, 0) / predictions.length) * 100
+      : 0;
+  const counts = useMemo(() => {
+    const map = new Map<string, number>();
+    predictions.forEach((prediction) =>
+      map.set(prediction.voucher_type, (map.get(prediction.voucher_type) ?? 0) + 1),
+    );
+    return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [predictions]);
+  const maxCount = Math.max(1, ...counts.map(([, count]) => count));
+  const animatedTotal = Math.round(useCountUp(total));
+  const animatedReview = Math.round(useCountUp(reviewCount));
+  const animatedConfidence = useCountUp(confidence);
+
+  return (
+    <div className="view">
+      <PageHeader
+        eyebrow="LOCAL WORKSPACE"
+        title="Your accounting control room."
+        detail={
+          total
+            ? `${animatedTotal.toLocaleString()} transactions in the current workspace.`
+            : "Classify a workbook to turn this page into a live control room."
+        }
+        action={
+          <PrimaryButton onClick={() => navigate("Classify")}>
+            <Icon name="upload" size={16} /> New classification
+          </PrimaryButton>
+        }
+      />
+
+      <section className="metric-grid">
+        <MetricCard label="Transactions" value={animatedTotal.toLocaleString()} detail={runs.length ? `${runs.length} saved runs` : "No runs yet"} tone={runs.length ? "good" : "neutral"} />
+        <MetricCard label="Mean confidence" value={predictions.length ? `${animatedConfidence.toFixed(1)}%` : "—"} detail="Current batch" />
+        <MetricCard label="Needs review" value={String(animatedReview)} detail="Human gate" tone={reviewCount ? "warn" : "good"} />
+        <MetricCard label="Runtime" value="Local" detail={scorerName(scorer)} tone="good" />
+      </section>
+
+      <section className="dashboard-grid">
+        <article className="panel panel-large">
+          <div className="panel-head">
+            <div><span className="section-kicker">DISTRIBUTION</span><h2>Predicted voucher mix</h2></div>
+            <span className="subtle-pill">{predictions.length} rows</span>
+          </div>
+          {counts.length ? (
+            <div className="distribution-chart" role="img" aria-label="Predicted voucher type distribution">
+              {counts.map(([label, count]) => (
+                <div className="distribution-row" key={label}>
+                  <div><strong>{label}</strong><span>{count}</span></div>
+                  <div className="bar-track"><i style={{ width: `${(count / maxCount) * 100}%` }} /></div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-panel">
+              <Icon name="classify" size={30} />
+              <h3>No predictions yet</h3>
+              <p>Start a run and this chart will summarize your batch.</p>
+              <SecondaryButton onClick={() => navigate("Classify")}>Go to Classify</SecondaryButton>
+            </div>
+          )}
+        </article>
+
+        <article className="panel attention-panel">
+          <div className="panel-head">
+            <div><span className="section-kicker">ATTENTION</span><h2>Review queue</h2></div>
+            <StatusDot tone={reviewCount ? "warn" : "good"} />
+          </div>
+          <div className="big-number">{reviewCount}</div>
+          <p>{reviewCount ? "Rows are waiting for a human decision." : "Everything in the current batch is above the review cutoff."}</p>
+          <div className="progress-large"><i style={{ width: `${total ? Math.round((reviewCount / total) * 100) : 0}%` }} /></div>
+          <PrimaryButton onClick={() => navigate("Review")} disabled={!reviewCount}>Open review queue <Icon name="arrow" size={15} /></PrimaryButton>
+        </article>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <div><span className="section-kicker">RECENT ACTIVITY</span><h2>Saved runs</h2></div>
+          <SecondaryButton onClick={() => navigate("Classify")}>New run</SecondaryButton>
+        </div>
+        <div className="data-table">
+          <div className="table-row table-header">
+            <span>FILE</span><span>ROWS</span><span>STATUS</span><span>CREATED</span><span />
+          </div>
+          {runs.length ? runs.slice(0, 8).map((run) => (
+            <div className="table-row" key={run.id}>
+              <span className="file-cell"><span className="file-icon"><Icon name="file" size={15} /></span><strong>{run.file}</strong></span>
+              <span>{run.rows.toLocaleString()}</span>
+              <span><b className={run.status === "Completed" ? "status-pill good" : "status-pill warn"}>{run.status}</b></span>
+              <span className="muted">{run.completed}</span>
+              <button
+                className="icon-btn"
+                aria-label={`Download predictions for ${run.file}`}
+                onClick={() => {
+                  if (run.predictions.length) downloadJsonl(`${run.file}.jsonl`, run.predictions);
+                }}
+                disabled={!run.predictions.length}
+              >
+                <Icon name="arrow" size={16} />
+              </button>
+            </div>
+          )) : (
+            <div className="empty-table">No saved runs yet. Your first classification will appear here.</div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function classifyReviewFlags(predictions: Prediction[], threshold: number): Prediction[] {
+  const cutoff = Math.max(0, Math.min(100, threshold)) / 100;
+  return predictions.map((prediction) => ({
+    ...prediction,
+    needs_review: prediction.needs_review || prediction.confidence < cutoff,
+  }));
+}
+
+function Classify({
+  settings,
+  initial,
+  onDone,
+}: {
+  settings: Settings;
+  initial: Prediction[];
+  onDone: (run: RunRecord, predictions: Prediction[]) => void;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
   const [rows, setRows] = useState<Prediction[]>(initial);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "review">("all");
   const input = useRef<HTMLInputElement>(null);
+
+  const threshold = Number(settings.auto_approve_threshold ?? 85);
+  const includeEvidence = Boolean(settings.include_evidence ?? true);
+  const allowedSize = 50 * 1024 * 1024;
+
+  useEffect(() => setRows(initial), [initial]);
+
+  function choose(next: File | null) {
+    if (!next) return;
+    if (next.size > allowedSize) {
+      setError("That file is larger than 50 MB. Split it into smaller batches and try again.");
+      return;
+    }
+    setError("");
+    setFile(next);
+  }
+
   async function run() {
-    if (!file) { setError("Choose a workbook first."); return; }
+    if (!file) {
+      setError("Choose a file first.");
+      return;
+    }
     setRunning(true);
     setError("");
     try {
-      const res = await api.predictFile(file, {
+      const result = await api.predictFile(file, {
         scorer: String(settings.scorer ?? "keyword"),
         workers: String(settings.workers ?? 1),
-        challenge: (settings.challenger ?? false) ? "true" : "false",
+        challenge: Boolean(settings.challenger ?? true) ? "true" : "false",
+        fraud: Boolean(settings.fraud ?? true) ? "true" : "false",
       });
-      setRows(res.predictions);
-      const need = res.predictions.filter((p) => p.needs_review).length;
-      onDone({
-        file: file.name, rows: res.n_rows, accuracy: null,
-        status: need ? "Review needed" : "Completed",
-        completed: new Date().toLocaleString(), predictions: res.predictions,
-      }, res.predictions);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const normalized = classifyReviewFlags(result.predictions, threshold);
+      setRows(normalized);
+      const needsReview = normalized.filter((prediction) => prediction.needs_review).length;
+      onDone(
+        {
+          id: `${Date.now()}-${file.name}`,
+          file: file.name,
+          rows: result.n_rows,
+          accuracy: null,
+          status: needsReview ? "Review needed" : "Completed",
+          completed: new Date().toLocaleString(),
+          predictions: normalized,
+        },
+        normalized,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Classification failed.");
+    } finally {
+      setRunning(false);
     }
-    setRunning(false);
   }
-  const shown = rows.filter((r) =>
-    (`${r.invoice_number} ${r.voucher_type}`.toLowerCase().includes(query.toLowerCase())));
-  return <div className="view">
-    <PageHeader eyebrow="CLASSIFY / NEW RUN" title="Transaction classifier" detail="Upload a workbook. Processing stays entirely on this machine." action={<><input ref={input} className="hidden-input" type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { if (e.target.files?.[0]) setFile(e.target.files[0]); }} /><button className="secondary-button" onClick={() => input.current?.click()}><Icon name="upload" size={16} />{file ? "Replace file" : "Choose file"}</button><button className="primary-button" onClick={run} disabled={running || !file}><Icon name="spark" size={16} />{running ? "Classifying…" : "Run classifier"}</button></>} />
-    {error && <p className="danger-text">{error}</p>}
-    <p className="page-detail">Scorer: <b>{scorerName(settings.scorer)}</b> — Instant rules need no model download; the Qwen3.5-4B AI model needs the llama server running; VouchPilot+ adds fraud screening on top.</p>
-    <section className="run-strip enter delay-1">
-      <div className="run-file"><i><Icon name="file" /></i><div><strong>{file ? file.name : "No file chosen"}</strong><span>{rows.length ? `${rows.length} rows classified` : "xlsx with voucher type missing"}</span></div></div>
-      <div className="run-model"><span>MODEL</span><strong><i className="online-dot" />{scorerName(settings.scorer)}</strong></div>
-      <div className="run-model"><span>PRIVACY</span><strong><Icon name="lock" size={14} />Private to this device</strong></div>
-      <div className="run-progress"><span>{running ? "Scoring rows…" : rows.length ? "Classification complete" : "Idle"}</span><div><i style={{ width: running ? "55%" : rows.length ? "100%" : "0%" }} /></div></div>
-    </section>
-    <section className="panel predictions-panel enter delay-2">
-      <div className="predictions-toolbar"><div><h2>Predictions</h2><span className="count-pill">{shown.length} rows</span></div><div className="toolbar-actions"><label className="search-box"><Icon name="search" size={16} /><input placeholder="Search transactions" value={query} onChange={(e) => setQuery(e.target.value)} /></label><button className="secondary-button" onClick={() => downloadJson("predictions.jsonl.json", rows)}>Export JSON <Icon name="chevron" size={14} /></button></div></div>
-      <div className="prediction-table">
-        <div className="prediction-row prediction-head"><span>TRANSACTION</span><span>PREDICTION</span><span>CONFIDENCE</span><span>EVIDENCE</span><span /></div>
-        {running && !rows.length && [0, 1, 2, 3].map((i) => <div className="shimmer-row" key={i}><span style={{ width: "30%" }} /><span style={{ width: "90%" }} /><span style={{ width: "60%" }} /></div>)}
-        {shown.slice(0, 100).map((row) => <div className="prediction-row" key={row.row_id}>
-          <span className="transaction-cell"><strong>{row.invoice_number}</strong><small>row {row.row_id}</small></span>
-          <span><b className="label-pill">{row.voucher_type}</b></span>
-          <span className="confidence-cell"><b className={row.confidence < 0.5 ? "low" : ""}>{Math.round(row.confidence * 100)}%</b><i><em className={row.confidence < 0.5 ? "low" : ""} style={{ width: `${Math.round(row.confidence * 100)}%` }} /></i></span>
-          <span className="evidence-cell">{row.evidence.slice(0, 3).map((tag) => <b key={tag}>{tag}</b>)}{row.needs_review && <b className="risk-tag">Review</b>}</span>
-          <button className="icon-button" aria-label={`Actions for ${row.invoice_number}`}><Icon name="more" /></button>
-        </div>)}
-      </div>
-      <div className="table-footer"><span>Showing {Math.min(100, shown.length)} of {shown.length}</span></div>
-    </section>
-  </div>;
+
+  const shown = rows.filter((row) => {
+    const matchesQuery = `${row.invoice_number} ${row.voucher_type} ${row.evidence.join(" ")}`
+      .toLowerCase()
+      .includes(query.toLowerCase());
+    return matchesQuery && (filter === "all" || row.needs_review);
+  });
+
+  const statusText = running
+    ? "Scoring your rows…"
+    : rows.length
+      ? `${rows.length.toLocaleString()} rows ready`
+      : "No run yet";
+
+  return (
+    <div className="view">
+      <PageHeader
+        eyebrow="CLASSIFY / NEW RUN"
+        title="Turn transactions into vouchers."
+        detail="Drop a workbook, CSV, PDF or bill image. The local API handles document intake, normalization and classification."
+        action={
+          <div className="page-actions">
+            <input
+              ref={input}
+              className="visually-hidden"
+              type="file"
+              accept={FILE_TYPES}
+              onChange={(event) => choose(event.target.files?.[0] ?? null)}
+            />
+            <SecondaryButton onClick={() => input.current?.click()}>
+              <Icon name="upload" size={16} /> {file ? "Replace file" : "Choose file"}
+            </SecondaryButton>
+            <PrimaryButton onClick={run} disabled={!file || running}>
+              <Icon name="spark" size={16} /> {running ? "Classifying…" : "Run classifier"}
+            </PrimaryButton>
+          </div>
+        }
+      />
+
+      {error ? (
+        <div className="alert alert-error" role="alert">
+          <Icon name="alert" size={17} />
+          <div><strong>Could not complete the run</strong><span>{error}</span></div>
+        </div>
+      ) : null}
+
+      <section className="upload-zone-wrap">
+        <div
+          className={`upload-zone ${dragOver ? "dragging" : ""} ${file ? "has-file" : ""}`}
+          onDragEnter={(event) => { event.preventDefault(); setDragOver(true); }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={(event) => { event.preventDefault(); setDragOver(false); }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragOver(false);
+            choose(event.dataTransfer.files?.[0] ?? null);
+          }}
+          onClick={() => input.current?.click()}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") input.current?.click();
+          }}
+          aria-label="Choose accounting file"
+        >
+          <span className="upload-icon"><Icon name="upload" size={25} /></span>
+          <div>
+            <strong>{file ? file.name : "Drop your accounting file here"}</strong>
+            <p>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB · ready to classify` : "XLSX, XLSM, CSV, PDF, PNG, JPG and TIFF · up to 50 MB"}</p>
+          </div>
+          <span className="upload-cta">{file ? "Change file" : "Browse files"}</span>
+        </div>
+      </section>
+
+      <section className="run-context">
+        <div><span className="section-kicker">SCORER</span><strong>{scorerName(settings.scorer)}</strong><span>{String(settings.scorer ?? "keyword") === "server" ? "llama.cpp required" : "No model download required"}</span></div>
+        <div><span className="section-kicker">REVIEW CUTOFF</span><strong>{threshold}%</strong><span>Below this is routed to Review</span></div>
+        <div><span className="section-kicker">PRIVACY</span><strong><StatusDot /> Local only</strong><span>Browser → local API → local engine</span></div>
+        <div><span className="section-kicker">RUN STATUS</span><strong>{statusText}</strong><span>{rows.length ? `${rows.filter((r) => r.needs_review).length} need review` : "Waiting for input"}</span></div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head panel-head-stack">
+          <div><span className="section-kicker">RESULTS</span><h2>Predictions</h2></div>
+          <div className="toolbar">
+            <label className="search-control"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search invoice or evidence" /></label>
+            <button className={`filter-chip ${filter === "review" ? "active" : ""}`} onClick={() => setFilter(filter === "all" ? "review" : "all")}>
+              <Icon name="filter" size={15} /> {filter === "review" ? "Needs review" : "All rows"}
+            </button>
+            <SecondaryButton onClick={() => downloadJsonl("predictions.jsonl", exportablePredictions(rows, includeEvidence))} disabled={!rows.length}>JSONL</SecondaryButton>
+            <SecondaryButton onClick={() => downloadBlob("predictions.csv", predictionsToCsv(exportablePredictions(rows, includeEvidence), includeEvidence), "text/csv")} disabled={!rows.length}>CSV</SecondaryButton>
+          </div>
+        </div>
+
+        <div className="data-table prediction-table">
+          <div className="table-row table-header prediction-grid">
+            <span>TRANSACTION</span><span>VOUCHER</span><span>CONFIDENCE</span><span>EVIDENCE</span><span>STATE</span>
+          </div>
+          {running && !rows.length
+            ? [1, 2, 3, 4].map((key) => (
+                <div className="skeleton-row prediction-grid" key={key}>
+                  <i /><i /><i /><i /><i />
+                </div>
+              ))
+            : shown.slice(0, 150).map((row) => (
+                <div className="table-row prediction-grid" key={row.row_id}>
+                  <div className="transaction">
+                    <strong>{row.invoice_number}</strong>
+                    <span>row {row.row_id}</span>
+                  </div>
+                  <div><span className="tag tag-strong">{row.voucher_type}</span></div>
+                  <div className="confidence">
+                    <strong className={row.needs_review ? "text-warn" : "text-good"}>{Math.round(row.confidence * 100)}%</strong>
+                    <span><i style={{ width: `${Math.max(2, row.confidence * 100)}%` }} /></span>
+                  </div>
+                  <div className="evidence-tags">
+                    {row.evidence.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
+                  </div>
+                  <div><span className={row.needs_review ? "status-pill warn" : "status-pill good"}>{row.needs_review ? "Review" : "Auto"}</span></div>
+                </div>
+              ))}
+          {!running && rows.length > 0 && !shown.length ? <div className="empty-table">No rows match your search.</div> : null}
+          {!running && !rows.length ? <div className="empty-table">Choose a file and run the classifier to see predictions.</div> : null}
+        </div>
+        <div className="table-foot">Showing {Math.min(150, shown.length)} of {shown.length.toLocaleString()} matching rows</div>
+      </section>
+    </div>
+  );
 }
 
-export interface Decision { row_id: number; verdict: "approve" | "override" | "escalate"; label: string | null; note: string }
+export interface Decision {
+  row_id: number;
+  verdict: "approve" | "override" | "escalate";
+  label: string | null;
+  note: string;
+}
 
-function Review({ predictions, labels, threshold, onExport }: {
+function Review({
+  predictions,
+  labels,
+  threshold,
+  exportFormat,
+  includeEvidence,
+  onExport,
+}: {
   predictions: Prediction[];
   labels: LabelInfo[];
   threshold: number;
+  exportFormat: string;
+  includeEvidence: boolean;
   onExport: (decisions: Decision[], final: Prediction[]) => void;
 }) {
-  const queue = predictions.filter((p) => p.needs_review || p.confidence * 100 < threshold);
-  const [priority, setPriority] = useState<"all" | "undecided" | "decided">("all");
-  const shown = queue.filter((q) => priority === "all"
-    || (priority === "decided" ? decisions[q.row_id] !== undefined : decisions[q.row_id] === undefined));
-  function toCSV(rows: Prediction[]): string {
-    const head = "row_id,invoice_number,voucher_type,confidence,needs_review";
-    const lines = rows.map((r) => [r.row_id, `"${String(r.invoice_number).replace(/"/g, "")}"`,
-      `"${r.voucher_type}"`, r.confidence, r.needs_review].join(","));
-    return [head, ...lines].join("\n");
-  }
-  function downloadCSV() {
-    const blob = new Blob([toCSV(finalRows())], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "final.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-  function finalRows(): Prediction[] {
-    const byId: Record<number, Decision> = {};
-    queue.forEach((q) => {
-      byId[q.row_id] = decisions[q.row_id] ?? { row_id: q.row_id, verdict: "escalate", label: null, note: "undecided at export" };
-    });
-    return predictions.map((p) => {
-      const d = byId[p.row_id];
-      if (!d) return p;
-      if (d.verdict === "override" && d.label) {
-        return { ...p, voucher_type: d.label, needs_review: false,
-                 evidence: [...p.evidence, `HUMAN:override->${d.label}`] };
-      }
-      if (d.verdict === "escalate") {
-        return { ...p, needs_review: true, evidence: [...p.evidence, "HUMAN:escalated"] };
-      }
-      return { ...p, needs_review: false, evidence: [...p.evidence, "HUMAN:approved"] };
-    });
-  }
+  const queue = useMemo(
+    () =>
+      predictions.filter(
+        (prediction) =>
+          prediction.needs_review || prediction.confidence * 100 < threshold,
+      ),
+    [predictions, threshold],
+  );
   const [decisions, setDecisions] = useState<Record<number, Decision>>({});
-  const [overriding, setOverriding] = useState<number | null>(null);
-  function applyFinal() {
-    const decs: Decision[] = queue.map((q) =>
-      decisions[q.row_id] ?? { row_id: q.row_id, verdict: "escalate", label: null, note: "undecided at export" });
-    onExport(decs, finalRows());
-  }
+  const [view, setView] = useState<"all" | "open" | "done">("all");
+  const [overrideRow, setOverrideRow] = useState<number | null>(null);
+
+  useEffect(() => {
+    setDecisions({});
+    setOverrideRow(null);
+  }, [predictions]);
+
+  const shown = queue.filter((row) =>
+    view === "all"
+      ? true
+      : view === "done"
+        ? Boolean(decisions[row.row_id])
+        : !decisions[row.row_id],
+  );
   const done = Object.keys(decisions).length;
-  return <div className="view">
-    <PageHeader eyebrow="HUMAN APPROVAL GATE" title="Review queue" detail={`${queue.length - done} rows need a decision before this batch can be exported.`} action={<button className="secondary-button" onClick={() => setPriority(priority === "all" ? "undecided" : priority === "undecided" ? "decided" : "all")}><Icon name="filter" size={15} />Priority: {priority[0].toUpperCase() + priority.slice(1)}</button>} />
-    <div className="review-layout enter delay-1">
-      <section className="review-list">
-        {shown.length ? shown.map((item) => <article className={`review-card ${decisions[item.row_id] && decisions[item.row_id].verdict !== undefined && (decisions[item.row_id].verdict !== "override" || decisions[item.row_id].label) ? "resolved" : ""}`} key={item.row_id}>
-          <div className="review-card-top"><div className="review-id"><span><Icon name="file" /></span><div><strong>{item.invoice_number}</strong><small>row {item.row_id}</small></div></div><button className="icon-button" aria-label={`More actions for ${item.invoice_number}`}><Icon name="more" /></button></div>
-          <div className="decision-grid">
-            <div><span>MODEL PREDICTION</span><strong>{item.voucher_type}</strong></div>
-            <div><span>CONFIDENCE</span><strong className={item.confidence < 0.5 ? "danger-text" : ""}>{Math.round(item.confidence * 100)}%</strong></div>
-            <div><span>TOP ALTERNATIVE</span><strong>{item.top_k[1] ? item.top_k[1][0] : "—"}</strong></div>
-          </div>
-          <div className="evidence-row">{item.evidence.slice(0, 5).map((tag) => <span key={tag}>{tag}</span>)}</div>
-          <div className="decision-actions">{decisions[item.row_id] && decisions[item.row_id].verdict !== "override" ? <p className="resolved-message"><Icon name="check" size={16} />Marked as {decisions[item.row_id].verdict}</p> : <><button className="approve-button" onClick={() => setDecisions({ ...decisions, [item.row_id]: { row_id: item.row_id, verdict: "approve", label: null, note: "" } })}><Icon name="check" size={15} />Approve</button><button className="secondary-button" onClick={() => setOverriding(item.row_id)}>Override</button><button className="plain-button" onClick={() => setDecisions({ ...decisions, [item.row_id]: { row_id: item.row_id, verdict: "escalate", label: null, note: "" } })}>Escalate</button></>}</div>
-          {overriding === item.row_id && <div className="decision-actions"><select value={decisions[item.row_id]?.label ?? ""} onChange={(e) => {
-            if (!e.target.value) {
-              const next = { ...decisions };
-              delete next[item.row_id];
-              setDecisions(next);
-            } else {
-              setDecisions({ ...decisions, [item.row_id]: { row_id: item.row_id, verdict: "override", label: e.target.value, note: "" } });
-            }
-          }}><option value="">Pick correct label…</option>{labels.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}</select></div>}
-        </article>) : <p>No rows need review — batch is fully auto-classified.</p>}
-      </section>
-      <aside className="review-summary panel">
-        <p className="section-label">BATCH PROGRESS</p><div className="ring" style={{ "--progress": `${queue.length ? Math.round((done / queue.length) * 100) : 100}%` } as React.CSSProperties}><span><strong>{done}</strong><small>of {queue.length}</small></span></div>
-        <h3>Approval checkpoint</h3><p>Every uncertain classification must be signed off before export.</p>
-        <div className="summary-list"><span><i className="online-dot" />Approved <b>{Object.values(decisions).filter((d) => d.verdict === "approve").length}</b></span><span><i className="override-dot" />Overridden <b>{Object.values(decisions).filter((d) => d.verdict === "override").length}</b></span><span><i className="critical-dot" />Escalated <b>{Object.values(decisions).filter((d) => d.verdict === "escalate").length}</b></span></div>
-        <button className="primary-button" disabled={!queue.length} onClick={applyFinal}>Complete review</button>
-        <button className="text-button" onClick={downloadCSV}>Download final.csv</button>
-        <button className="text-button" onClick={() => downloadJson("decisions.json", { decisions: queue.map((q) => decisions[q.row_id] ?? { row_id: q.row_id, verdict: "escalate", label: null, note: "undecided" }) })}>Download decisions.json</button>
-        <button className="text-button" onClick={(e) => {
-          const text = JSON.stringify({ decisions: queue.map((q) => decisions[q.row_id] ?? { row_id: q.row_id, verdict: "escalate", label: null, note: "undecided" }) });
-          const done = () => { (e.target as HTMLButtonElement).textContent = "Copied ✓"; };
-          if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(() => undefined);
-          else done();
-        }}>Copy decisions</button>
-      </aside>
-    </div>
-  </div>;
-}
+  const approved = Object.values(decisions).filter((d) => d.verdict === "approve").length;
+  const overridden = Object.values(decisions).filter((d) => d.verdict === "override").length;
+  const escalated = Object.values(decisions).filter((d) => d.verdict === "escalate").length;
 
-function System({ navigate }: { navigate: (area: Area) => void }) {
-  const [data, setData] = useState<{ modules: Record<string, string>; server: { up: boolean }; weights: string[] } | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    api.system().then((d) => setData(d as never)).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
-  const entries = data ? Object.entries(data.modules) : [];
-  const okCount = entries.filter(([, v]) => v === "OK").length;
-  const modules = [
-    { icon: "server" as IconName, name: "AI model connection", meta: "Is the AI ready to score?", value: data ? (data.server.up ? "Ready" : "Not running") : "…", sub: "Qwen3.5-4B · Gemma 4 E4B" },
-    { icon: "database" as IconName, name: "Classification pipeline", meta: `${okCount}/${entries.length} parts working`, value: entries.length && okCount === entries.length ? "Healthy" : "Check", sub: error || "everything the app needs" },
-    { icon: "shield" as IconName, name: "Fraud screen", meta: "Suspicious bills get flagged", value: "Active", sub: "bad-link and trick-text checks" },
-    { icon: "cpu" as IconName, name: "Second opinion", meta: "Close calls get double-checked", value: "Active", sub: "only the unsure rows" },
-  ];
-  return <div className="view">
-    <PageHeader eyebrow="PRIVATE RUNTIME" title="System health" detail="All inference, evidence, and files remain on this device." action={<button className="secondary-button" onClick={() => window.location.reload()}>Run diagnostics</button>} />
-    <section className="system-hero enter delay-1">
-      <div><span className="health-orb"><Icon name="check" /></span><div><p className="section-label">OVERALL STATUS</p><h2>{data ? (okCount === entries.length ? "All systems operational" : "Degraded — see modules") : "Checking…"}</h2><p>Weights on disk: {data ? (data.weights.join(", ") || "none — run scripts/fetch_model.py") : "…"}</p></div></div>
-    </section>
-    <section className="system-grid enter delay-2">
-      <div className="panel modules-panel"><div className="panel-heading"><div><p className="section-label">SERVICES</p><h2>Module health</h2></div><span className="live-pill"><i />Live</span></div>
-        <div className="module-list">{modules.map((module) => <div className="module-row" key={module.name}><span className="module-icon"><Icon name={module.icon} /></span><div><strong>{module.name}</strong><small>{module.meta}</small></div><div className="module-value"><strong><i className="online-dot" />{module.value}</strong><small>{module.sub}</small></div><Icon name="chevron" size={16} /></div>)}</div>
-      </div>
-      <div className="panel model-panel"><p className="section-label">MODEL WEIGHTS</p><div className="model-name"><span>Q</span><div><h2>Local GGUF weights</h2><p>Open-weight · Offline</p></div></div>
-        <dl><div><dt>Files on disk</dt><dd>{data && data.weights.length ? data.weights.join(", ") : "none"}</dd></div><div><dt>Runtime</dt><dd>llama.cpp server · Q4 · ctx 4096</dd></div><div><dt>Endpoint</dt><dd>127.0.0.1:8080</dd></div></dl>
-        <a className="secondary-button full-button" href="/desktop-package" download>Download desktop app <Icon name="arrow" size={15} /></a>
-      </div>
-    </section>
-    <section className="privacy-banner enter delay-3"><span><Icon name="lock" /></span><div><strong>Air-gapped by design</strong><p>Network access is disabled for the model runtime. No transaction data, prompts, or embeddings leave this machine.</p></div><button onClick={() => navigate("Settings")}>View privacy controls <Icon name="arrow" size={14} /></button></section>
-  </div>;
-}
+  function decide(rowId: number, verdict: Decision["verdict"], label: string | null = null) {
+    setDecisions((current) => ({
+      ...current,
+      [rowId]: { row_id: rowId, verdict, label, note: "" },
+    }));
+  }
 
-function PreferenceSwitch({ enabled, onChange, label }: { enabled: boolean; onChange: () => void; label: string }) {
-  return <button className={`preference-switch ${enabled ? "on" : ""}`} onClick={onChange} role="switch" aria-checked={enabled} aria-label={label}><span /></button>;
-}
+  function finalRows(): Prediction[] {
+    return predictions.map((prediction) => {
+      const decision = decisions[prediction.row_id];
+      if (!decision) return prediction;
+      if (decision.verdict === "override" && decision.label) {
+        return {
+          ...prediction,
+          voucher_type: decision.label,
+          needs_review: false,
+          evidence: [...prediction.evidence, `HUMAN:override->${decision.label}`],
+        };
+      }
+      if (decision.verdict === "approve") {
+        return {
+          ...prediction,
+          needs_review: false,
+          evidence: [...prediction.evidence, "HUMAN:approved"],
+        };
+      }
+      return {
+        ...prediction,
+        needs_review: true,
+        evidence: [...prediction.evidence, "HUMAN:escalated"],
+      };
+    });
+  }
 
-function Settings({ theme, onThemeToggle, onSaved }: { theme: Theme; onThemeToggle: () => void; onSaved: (s: Settings) => void }) {
-  const [challenger, setChallenger] = useState(true);
-  const [fraud, setFraud] = useState(true);
-  const [autoApprove, setAutoApprove] = useState(false);
-  const [threshold, setThreshold] = useState(85);
-  const [scorer, setScorer] = useState("keyword");
-  const [workers, setWorkers] = useState(1);
-  const [format, setFormat] = useState("jsonl");
-  const [evidence, setEvidence] = useState(true);
-  const [loaded, setLoaded] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [density, setDensity] = useState(() => {
-    try {
-      return window.localStorage.getItem("vouchpilot-density") ?? "compact";
-    } catch {
-      return "compact";
+  function finish() {
+    if (done < queue.length) return;
+    const final = finalRows();
+    onExport(Object.values(decisions), final);
+  }
+
+  function downloadDecisions() {
+    downloadJson("decisions.json", { decisions: Object.values(decisions) });
+  }
+
+  function downloadFinal() {
+    if (done < queue.length || !queue.length) return;
+    const rows = exportablePredictions(finalRows(), includeEvidence);
+    if (exportFormat === "jsonl") {
+      downloadJsonl("final.jsonl", rows);
+      return;
     }
-  });
-  useEffect(() => {
-    document.documentElement.dataset.density = density;
+    downloadBlob("final.csv", predictionsToCsv(rows, includeEvidence), "text/csv");
+  }
+
+  return (
+    <div className="view">
+      <PageHeader
+        eyebrow="HUMAN APPROVAL GATE"
+        title="Review only what needs a person."
+        detail={
+          queue.length
+            ? `${Math.max(0, queue.length - done)} of ${queue.length} rows still need a decision.`
+            : "This batch has no rows below the configured review cutoff."
+        }
+        action={
+          <button className="filter-chip active" onClick={() => setView(view === "all" ? "open" : view === "open" ? "done" : "all")}>
+            <Icon name="filter" size={15} /> {view === "all" ? "All" : view === "open" ? "Open" : "Decided"}
+          </button>
+        }
+      />
+
+      <section className="review-layout">
+        <div className="review-stack">
+          {shown.length ? shown.map((row) => {
+            const decision = decisions[row.row_id];
+            const override = overrideRow === row.row_id;
+            const isResolved = Boolean(decision);
+            return (
+              <article className={`review-card ${isResolved ? "resolved" : ""}`} key={row.row_id}>
+                <div className="review-card-head">
+                  <div className="transaction">
+                    <span className="file-icon"><Icon name="file" size={15} /></span>
+                    <div><strong>{row.invoice_number}</strong><span>Row {row.row_id}</span></div>
+                  </div>
+                  <span className={row.confidence < 0.5 ? "status-pill bad" : "status-pill warn"}>
+                    {Math.round(row.confidence * 100)}% confidence
+                  </span>
+                </div>
+
+                <div className="decision-matrix">
+                  <div><span>MODEL PREDICTION</span><strong>{row.voucher_type}</strong></div>
+                  <div><span>TOP ALTERNATIVE</span><strong>{row.top_k[1]?.[0] ?? "—"}</strong></div>
+                  <div><span>EVIDENCE</span><strong>{row.evidence.slice(0, 2).join(" · ") || "No tags"}</strong></div>
+                </div>
+
+                {!isResolved ? (
+                  <>
+                    <div className="review-actions">
+                      <PrimaryButton onClick={() => decide(row.row_id, "approve")}><Icon name="check" size={15} /> Approve</PrimaryButton>
+                      <SecondaryButton onClick={() => setOverrideRow(override ? null : row.row_id)}>Override</SecondaryButton>
+                      <button className="btn btn-ghost" onClick={() => decide(row.row_id, "escalate")}>Escalate</button>
+                    </div>
+                    {override ? (
+                      <div className="override-panel">
+                        <select
+                          value={decisions[row.row_id]?.label ?? ""}
+                          onChange={(event) => {
+                            const label = event.target.value || null;
+                            if (!label) return;
+                            decide(row.row_id, "override", label);
+                            setOverrideRow(null);
+                          }}
+                          aria-label={`Correct voucher for ${row.invoice_number}`}
+                        >
+                          <option value="">Choose the correct voucher…</option>
+                          {(labels.length
+                            ? labels
+                            : [...new Set(predictions.map((prediction) => prediction.voucher_type))]
+                              .map((name) => ({ code: name, group: "", name } as LabelInfo))
+                          ).map((label) => (
+                            <option key={label.code} value={label.name}>{label.name}</option>
+                          ))}
+                        </select>
+                        <span>Selecting a label immediately records the override.</span>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="resolved-strip">
+                    <Icon name="check" size={16} />
+                    <strong>{decision.verdict === "approve" ? "Approved" : decision.verdict === "override" ? `Overridden to ${decision.label}` : "Escalated"}</strong>
+                  </div>
+                )}
+              </article>
+            );
+          }) : (
+            <div className="empty-panel">
+              <span className="success-icon"><Icon name="check" size={24} /></span>
+              <h3>{queue.length ? "No rows in this view" : "Review queue is clear"}</h3>
+              <p>{queue.length ? "Switch the filter to see the remaining decisions." : "Every prediction is above the configured review cutoff."}</p>
+            </div>
+          )}
+        </div>
+
+        <aside className="review-summary panel">
+          <span className="section-kicker">BATCH CHECKPOINT</span>
+          <div className="review-ring" style={{ "--progress": `${queue.length ? (done / queue.length) * 360 : 360}deg` } as CSSProperties}>
+            <div><strong>{done}</strong><span>of {queue.length}</span></div>
+          </div>
+          <h3>Decision status</h3>
+          <p>Export unlocks only after every queued row has a human decision.</p>
+          <div className="decision-stats">
+            <span><StatusDot tone="good" /> Approved <b>{approved}</b></span>
+            <span><StatusDot tone="warn" /> Overridden <b>{overridden}</b></span>
+            <span><StatusDot tone="bad" /> Escalated <b>{escalated}</b></span>
+          </div>
+          <PrimaryButton onClick={finish} disabled={done < queue.length || !queue.length}>
+            Complete review <Icon name="arrow" size={15} />
+          </PrimaryButton>
+          <SecondaryButton onClick={downloadFinal} disabled={done < queue.length || !queue.length}>
+            Download final.{exportFormat === "jsonl" ? "jsonl" : "csv"}
+          </SecondaryButton>
+          <button className="btn btn-ghost btn-full" onClick={downloadDecisions} disabled={!done}>Download decisions.json</button>
+        </aside>
+      </section>
+    </div>
+  );
+}
+
+function System() {
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.system>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    setLoading(true);
+    setError("");
     try {
-      window.localStorage.setItem("vouchpilot-density", density);
-    } catch { /* private mode */ }
-  }, [density]);
+      setData(await api.system());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Diagnostics unavailable.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void refresh(); }, []);
+
+  const entries = data ? Object.entries(data.modules) : [];
+  const okCount = entries.filter(([, value]) => value === "OK").length;
+  const overallGood = data ? okCount === entries.length : false;
+
+  return (
+    <div className="view">
+      <PageHeader
+        eyebrow="PRIVATE RUNTIME"
+        title="System health"
+        detail="Check the local API, model server, Python modules and weights from one place."
+        action={<SecondaryButton onClick={refresh} disabled={loading}>{loading ? "Checking…" : "Run diagnostics"}</SecondaryButton>}
+      />
+
+      {error ? <div className="alert alert-error" role="alert"><Icon name="alert" size={17} /><span>{error}</span></div> : null}
+
+      <section className={`health-banner ${overallGood ? "good" : "warn"}`}>
+        <span className="health-symbol"><Icon name={overallGood ? "check" : "alert"} size={22} /></span>
+        <div>
+          <span className="section-kicker">OVERALL STATUS</span>
+          <h2>{loading ? "Checking local services…" : overallGood ? "Core modules are healthy" : "Some modules need attention"}</h2>
+          <p>{data ? `${okCount}/${entries.length} Python modules import correctly · model server ${data.server.up ? "reachable" : "offline"}` : "Waiting for a response from the local API."}</p>
+        </div>
+      </section>
+
+      <section className="system-grid">
+        <article className="panel">
+          <div className="panel-head"><div><span className="section-kicker">MODULES</span><h2>Pipeline health</h2></div></div>
+          <div className="system-list">
+            {entries.map(([name, status]) => (
+              <div className="system-row" key={name}>
+                <span className="system-icon"><Icon name={name === "ingest" || name === "normalise" ? "database" : "cpu"} size={17} /></span>
+                <div><strong>{name}</strong><span>Python module</span></div>
+                <b className={status === "OK" ? "text-good" : "text-bad"}><StatusDot tone={status === "OK" ? "good" : "bad"} />{status}</b>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-head"><div><span className="section-kicker">MODEL RUNTIME</span><h2>Local inference</h2></div><StatusDot tone={data?.server.up ? "good" : "warn"} /></div>
+          <div className="runtime-card">
+            <div><span className="section-kicker">ENDPOINT</span><strong>{data?.server.url ?? "127.0.0.1:8080"}</strong></div>
+            <div><span className="section-kicker">WEIGHTS</span><strong>{data?.weights.length ? data.weights.join(", ") : "No GGUF weights found"}</strong></div>
+            <div><span className="section-kicker">VERSION</span><strong>{data?.version ?? "—"}</strong></div>
+          </div>
+          <p className="muted-copy">Keyword mode needs no model weights. The local server scorer does.</p>
+        </article>
+      </section>
+    </div>
+  );
+}
+
+function Toggle({
+  enabled,
+  onChange,
+  label,
+}: {
+  enabled: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  return (
+    <button className={`toggle ${enabled ? "on" : ""}`} role="switch" aria-checked={enabled} aria-label={label} onClick={onChange}>
+      <span />
+    </button>
+  );
+}
+
+function SettingsPage({
+  theme,
+  onThemeToggle,
+  settings,
+  onSaved,
+}: {
+  theme: Theme;
+  onThemeToggle: () => void;
+  settings: Settings;
+  onSaved: (settings: Settings) => void;
+}) {
+  const [scorer, setScorer] = useState(String(settings.scorer ?? "keyword"));
+  const [threshold, setThreshold] = useState(Number(settings.auto_approve_threshold ?? 85));
+  const [challenger, setChallenger] = useState(Boolean(settings.challenger ?? true));
+  const [fraud, setFraud] = useState(Boolean(settings.fraud ?? true));
+  const [workers, setWorkers] = useState(Number(settings.workers ?? 1));
+  const [format, setFormat] = useState(String(settings.export_format ?? "jsonl"));
+  const [evidence, setEvidence] = useState(Boolean(settings.include_evidence ?? true));
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+
   useEffect(() => {
-    api.settings()
-      .then((s) => {
-        const r = s as Record<string, unknown>;
-        if (typeof r.challenger === "boolean") setChallenger(r.challenger);
-        if (typeof r.fraud === "boolean") setFraud(r.fraud);
-        if (typeof r.auto_approve_threshold === "number") setThreshold(r.auto_approve_threshold);
-        if (typeof r.scorer === "string") setScorer(r.scorer);
-        if (typeof r.export_format === "string") setFormat(r.export_format);
-        if (typeof r.include_evidence === "boolean") setEvidence(r.include_evidence);
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
-  }, []);
-  const save = () => {
+    setScorer(String(settings.scorer ?? "keyword"));
+    setThreshold(Number(settings.auto_approve_threshold ?? 85));
+    setChallenger(Boolean(settings.challenger ?? true));
+    setFraud(Boolean(settings.fraud ?? true));
+    setWorkers(Number(settings.workers ?? 1));
+    setFormat(String(settings.export_format ?? "jsonl"));
+    setEvidence(Boolean(settings.include_evidence ?? true));
+  }, [settings]);
+
+  async function save() {
+    setSaving(true);
+    setSaved(false);
     setError("");
-    api.saveSettings({ challenger, fraud, auto_approve_threshold: threshold, scorer, workers, export_format: format, include_evidence: evidence })
-      .then((s) => { onSaved(s as Settings); setSaved(true); window.setTimeout(() => setSaved(false), 1800); })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  };
-  if (!loaded) return <div className="view"><p>Loading settings…</p></div>;
-  return <div className="view">
-    <PageHeader eyebrow="WORKSPACE CONTROL" title="Settings"     detail="Configure classification behavior, privacy, appearance, and export defaults."
-    action={<><button className="primary-button" onClick={save}>{saved ? <><Icon name="check" size={15} />Saved</> : "Save changes"}</button></>}
-  />
-    {error && <p className="danger-text">{error}</p>}
-    <div className="settings-layout enter delay-1">
-      <section className="settings-column">
-        <div className="panel settings-panel">
-          <div className="settings-heading"><span><Icon name="sun" /></span><div><h2>Appearance</h2><p>Choose how VouchPilot looks on this device.</p></div></div>
-          <div className="setting-row"><div><strong>Interface theme</strong><small>Switch between the original light workspace and night mode.</small></div><ThemeToggle theme={theme} onToggle={onThemeToggle} labelled /></div>
-          <div className="setting-row"><div><strong>Density</strong><small>Roomier rows for long review sessions.</small></div><div className="segmented">{["comfortable", "compact"].map((d) => <button key={d} className={density === d ? "selected" : ""} onClick={() => setDensity(d)}>{d[0].toUpperCase() + d.slice(1)}</button>)}</div></div>
-        </div>
-        <div className="panel settings-panel">
-          <div className="settings-heading"><span><Icon name="spark" /></span><div><h2>Classification behavior</h2><p>Control how the local model handles uncertain rows.</p></div></div>
-          <div className="threshold-setting"><div><strong>Review queue cutoff</strong><b>{threshold}%</b></div><input type="range" min="60" max="99" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} /><div><span>More review</span><span>More automation</span></div></div>
-          <div className="setting-row"><div><strong>Pairwise challenger</strong><small>Re-check close calls against the second-best voucher category.</small></div><PreferenceSwitch enabled={challenger} onChange={() => setChallenger(!challenger)} label="Pairwise challenger" /></div>
-          <div className="setting-row"><div><strong>Default scorer</strong><small>Used for new Classify runs unless changed.</small></div><div className="segmented">{["keyword", "vouchpilot", "stub", "server"].map((s) => <button key={s} className={scorer === s ? "selected" : ""} onClick={() => setScorer(s)}>{scorerName(s)}</button>)}</div></div>
-        </div>
-      </section>
-      <section className="settings-column">
-        <div className="panel settings-panel">
-          <div className="settings-heading"><span><Icon name="shield" /></span><div><h2>Privacy & security</h2><p>VouchPilot is offline-first and private by default.</p></div></div>
-          <div className="security-note"><Icon name="lock" /><div><strong>Network isolation active</strong><p>Model inference and transaction storage are restricted to this device.</p></div></div>
-          <div className="setting-row"><div><strong>Fraud and injection scanner</strong><small>Scan narrations for quishing URLs and prompt-injection attempts.</small></div><PreferenceSwitch enabled={fraud} onChange={() => setFraud(!fraud)} label="Fraud scanner" /></div>
-          <div className="setting-row"><div><strong>Parallel workers</strong><small>Match the llama-server slot count. 1 is bit-identical.</small></div><div className="segmented">{[1, 2, 4].map((w) => <button key={w} className={workers === w ? "selected" : ""} onClick={() => setWorkers(w)}>{w}</button>)}</div></div>
-        </div>
-        <div className="panel settings-panel">
-          <div className="settings-heading"><span><Icon name="file" /></span><div><h2>Export defaults</h2><p>Set the format used after human approval.</p></div></div>
-          <div className="setting-row"><div><strong>Default format</strong><small>Used for Review-tab exports.</small></div><div className="segmented">{["jsonl", "csv"].map((f) => <button key={f} className={format === f ? "selected" : ""} onClick={() => setFormat(f)}>{f}</button>)}</div></div>
-          <div className="setting-row"><div><strong>Include decision evidence</strong><small>Add confidence, evidence tags, and reviewer status as columns.</small></div><PreferenceSwitch enabled={evidence} onChange={() => setEvidence(!evidence)} label="Include evidence" /></div>
-        </div>
-        <div className="danger-zone"><div><strong>Reset local workspace</strong><p>Remove imported files, decisions, and cached evidence. Model weights are retained.</p></div><button onClick={() => setConfirmReset(true)}>Reset data</button></div>
-      </section>
-    </div>
-    {confirmReset && <div className="modal-backdrop"><div className="modal" role="dialog" aria-label="Confirm reset">
-      <h2>Reset workspace?</h2>
-      <p>This clears runs, decisions and cached evidence on this device. Weights stay.</p>
-      <div className="modal-actions">
-        <button className="secondary-button" onClick={() => setConfirmReset(false)}>Cancel</button>
-        <button className="primary-button" onClick={() => { window.localStorage.removeItem("vouchpilot-runs"); window.location.reload(); }}>Reset everything</button>
+    try {
+      const next = await api.saveSettings({
+        scorer,
+        auto_approve_threshold: threshold,
+        challenger,
+        fraud,
+        workers,
+        export_format: format,
+        include_evidence: evidence,
+      });
+      onSaved(next);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1800);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not save settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="view">
+      <PageHeader
+        eyebrow="WORKSPACE CONTROL"
+        title="Settings"
+        detail="Choose the classifier, review threshold, privacy checks and export behavior used by new runs."
+        action={<PrimaryButton onClick={save} disabled={saving}>{saving ? "Saving…" : saved ? <><Icon name="check" size={15} /> Saved</> : "Save changes"}</PrimaryButton>}
+      />
+
+      {error ? <div className="alert alert-error" role="alert"><Icon name="alert" size={17} /><span>{error}</span></div> : null}
+
+      <div className="settings-grid">
+        <section className="panel settings-panel">
+          <div className="panel-head"><div><span className="section-kicker">CLASSIFICATION</span><h2>How VouchPilot scores</h2></div></div>
+          <div className="setting">
+            <div><strong>Default scorer</strong><span>Used for new classification runs.</span></div>
+            <div className="choice-grid">{["keyword", "vouchpilot", "stub", "server"].map((value) => (
+              <button key={value} className={scorer === value ? "choice selected" : "choice"} onClick={() => setScorer(value)}>
+                <strong>{scorerName(value)}</strong>
+                <span>{value === "server" ? "Local model" : value === "vouchpilot" ? "Rules + fraud screen" : value === "keyword" ? "Fastest path" : "Demo only"}</span>
+              </button>
+            ))}</div>
+          </div>
+          <div className="setting">
+            <div className="setting-line"><div><strong>Review cutoff</strong><span>Rows below this confidence are routed to Review.</span></div><b>{threshold}%</b></div>
+            <input className="range" type="range" min="60" max="99" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} />
+            <div className="range-hints"><span>More human review</span><span>More automation</span></div>
+          </div>
+          <div className="setting-row"><div><strong>Pairwise challenger</strong><span>Re-check close calls against the strongest alternative.</span></div><Toggle enabled={challenger} onChange={() => setChallenger((value) => !value)} label="Pairwise challenger" /></div>
+          <div className="setting-row"><div><strong>Parallel workers</strong><span>Increase throughput for local scoring.</span></div><div className="segmented">{[1, 2, 4, 8].map((value) => <button key={value} className={workers === value ? "selected" : ""} onClick={() => setWorkers(value)}>{value}</button>)}</div></div>
+        </section>
+
+        <section className="panel settings-panel">
+          <div className="panel-head"><div><span className="section-kicker">PRIVACY & OUTPUT</span><h2>Local controls</h2></div><Icon name="shield" /></div>
+          <div className="local-note"><Icon name="lock" size={17} /><div><strong>Local by design</strong><span>Browser, API and model runtime all stay on the machine.</span></div></div>
+          <div className="setting-row"><div><strong>Fraud / injection scanner</strong><span>Applied by the VouchPilot+ scorer to narration and bill signals.</span></div><Toggle enabled={fraud} onChange={() => setFraud((value) => !value)} label="Fraud and injection scanner" /></div>
+          <div className="setting-row"><div><strong>Primary export format</strong><span>Controls the one-click final export in Review.</span></div><div className="segmented">{["jsonl", "csv"].map((value) => <button key={value} className={format === value ? "selected" : ""} onClick={() => setFormat(value)}>{value.toUpperCase()}</button>)}</div></div>
+          <div className="setting-row"><div><strong>Include evidence</strong><span>Keep evidence tags and decision markers in exports.</span></div><Toggle enabled={evidence} onChange={() => setEvidence((value) => !value)} label="Include evidence" /></div>
+        </section>
+
+        <section className="panel settings-panel">
+          <div className="panel-head"><div><span className="section-kicker">APPEARANCE</span><h2>Workspace theme</h2></div></div>
+          <div className="setting-row"><div><strong>Color mode</strong><span>Use a bright workspace or a low-glare dark canvas.</span></div><ThemeToggle theme={theme} onToggle={onThemeToggle} /></div>
+        </section>
       </div>
-    </div></div>}
-  </div>;
+    </div>
+  );
 }
 
 function Footer({ navigate }: { navigate: (area: Area) => void }) {
-  const year = new Date().getFullYear();
-  return <footer className="site-footer">
-    <nav aria-label="Footer">
-      <button onClick={() => navigate("Dashboard")}>Product</button>
-      <button onClick={() => navigate("Classify")}>Classify</button>
-      <button onClick={() => navigate("Review")}>Review</button>
-      <button onClick={() => navigate("Privacy")}>Privacy policy</button>
-      <button onClick={() => navigate("Terms")}>Terms</button>
-      <button onClick={() => navigate("Cookies")}>Cookies</button>
-      <button onClick={() => navigate("Refunds")}>Refunds</button>
-      <a href="mailto:wagdemehul@gmail.com">Contact: wagdemehul@gmail.com</a>
-    </nav>
-    <small>© {year} CodeCarto. VouchPilot runs fully offline on your machine. No accounts, no tracking.</small>
-  </footer>;
+  return (
+    <footer className="footer">
+      <div>
+        <Logo compact />
+        <p>Offline voucher intelligence for Indian accounting workflows.</p>
+      </div>
+      <nav aria-label="Footer">
+        <button onClick={() => navigate("Dashboard")}>Product</button>
+        <button onClick={() => navigate("Classify")}>Classify</button>
+        <button onClick={() => navigate("Review")}>Review</button>
+        <button onClick={() => navigate("Privacy")}>Privacy</button>
+        <button onClick={() => navigate("Terms")}>Terms</button>
+        <button onClick={() => navigate("Cookies")}>Cookies</button>
+        <button onClick={() => navigate("Refunds")}>Refunds</button>
+      </nav>
+      <span>© {new Date().getFullYear()} CodeCarto · VouchPilot</span>
+    </footer>
+  );
 }
 
-function Legal({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
-  return <div className="view"><div className="legal-body">
-    <p className="section-label">{eyebrow}</p><h1>{title}</h1>{children}
-  </div></div>;
+function Legal({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="view">
+      <PageHeader eyebrow={eyebrow} title={title} detail="VouchPilot local workspace policies and notices." />
+      <article className="legal">
+        {children}
+      </article>
+    </div>
+  );
 }
 
-function Privacy() {
-  return <Legal eyebrow="LEGAL" title="Privacy policy">
-    <p>VouchPilot collects nothing. There are no accounts, no analytics, no tracking cookies and no network calls: your workbooks, predictions and decisions stay in this browser and on this machine. Settings and recent runs are kept in your browser's local storage, which you can wipe any time with Reset data in Settings.</p>
-    <h2>India DPDP Act 2023</h2>
-    <p>Since no personal data is collected or transmitted, there is nothing to retain, share or breach. If you believe you found a privacy issue, write to <a href="mailto:wagdemehul@gmail.com">wagdemehul@gmail.com</a> and it will be fixed.</p>
-    <h2>Model weights</h2>
-    <p>Open-weight models (Qwen3.5, Gemma) run on this machine under their Apache 2.0 terms. Downloading weights is the only step that touches the network.</p>
-  </Legal>;
-}
-
-function Terms() {
-  return <Legal eyebrow="LEGAL" title="Terms of use">
-    <p>VouchPilot is provided as-is for classifying your own accounting data. Predictions are decision support, not professional advice: always review uncertain rows before filing GST returns or closing books.</p>
-    <p>You are responsible for the data you import and for complying with GST law. Do not use the tool to falsify records. Contact: <a href="mailto:wagdemehul@gmail.com">wagdemehul@gmail.com</a>.</p>
-  </Legal>;
-}
-
-function Cookies() {
-  return <Legal eyebrow="LEGAL" title="Cookie policy">
-    <p>VouchPilot sets zero tracking cookies. The only things stored in your browser are functional preferences (theme, settings, recent runs) in local storage. There is nothing to consent to beyond continuing to use the app, and Reset data in Settings clears it all.</p>
-  </Legal>;
-}
-
-function Refunds() {
-  return <Legal eyebrow="LEGAL" title="Refund policy">
-    <p>VouchPilot collects no payments, so there is nothing to bill and nothing to refund. If a paid offering ever appears, its refund terms will be published here first. Questions: <a href="mailto:wagdemehul@gmail.com">wagdemehul@gmail.com</a>.</p>
-  </Legal>;
-}
-
-export default function App() {
+function App() {
   const [area, setArea] = useState<Area>("Dashboard");
   const [entered, setEntered] = useState(false);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
-  const [runs, setRuns] = useState<RunRecord[]>(() => {
-    try {
-      return JSON.parse(window.localStorage.getItem("vouchpilot-runs") ?? "[]") as RunRecord[];
-    } catch {
-      return [];
-    }
-  });
+  const [runs, setRuns] = useState<RunRecord[]>(() => loadRuns());
   const [labels, setLabels] = useState<LabelInfo[]>([]);
   const [settings, setSettings] = useState<Settings>({});
+  const [navOpen, setNavOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
-    const saved = window.localStorage.getItem("vouchpilot-theme");
-    return saved === "dark" ? "dark" : "light";
+    try {
+      return window.localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
   });
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem("vouchpilot-theme", theme);
+    try {
+      window.localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // Continue without persistence in private mode.
+    }
   }, [theme]);
+
   useEffect(() => {
-    api.labels().then((d) => setLabels(d.labels)).catch(() => undefined);
-    api.settings().then((s) => setSettings(s as Settings)).catch(() => undefined);
+    void api.labels().then((response) => setLabels(response.labels)).catch(() => undefined);
+    void api.settings().then((response) => setSettings(response)).catch(() => undefined);
   }, []);
-  const toggleTheme = () => setTheme((current) => current === "light" ? "dark" : "light");
-  function classified(run: RunRecord, preds: Prediction[]) {
-    setPredictions(preds);
-    setRuns((prev) => {
-      const next = [run, ...prev].slice(0, 20);
-      try {
-        window.localStorage.setItem("vouchpilot-runs",
-          JSON.stringify(next.map(({ predictions: _p, ...r }) => r)));
-      } catch { /* storage full: keep in memory */ }
+
+  function navigate(next: Area) {
+    setArea(next);
+    setNavOpen(false);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  function commitRun(run: RunRecord, nextPredictions: Prediction[]) {
+    setPredictions(nextPredictions);
+    setRuns((current) => {
+      const next = [run, ...current.filter((item) => item.id !== run.id)].slice(0, 20);
+      saveRuns(next);
       return next;
     });
     setArea("Dashboard");
   }
-  function exported(_decisions: Decision[], final: Prediction[]) {
-    setPredictions(final);
-    downloadJson("final.jsonl", final);
+
+  function commitReview(_decisions: Decision[], nextPredictions: Prediction[]) {
+    setPredictions(nextPredictions);
+    setRuns((current) => {
+      const sourceRunId = current[0]?.id;
+      if (!sourceRunId) return current;
+      const next = applyReviewToRuns(current, sourceRunId, nextPredictions);
+      saveRuns(next);
+      return next;
+    });
   }
-  const [navOpen, setNavOpen] = useState(false);
-  const [scrollPct, setScrollPct] = useState(0);
-  const [showTop, setShowTop] = useState(false);
-  const [cookiesOk, setCookiesOk] = useState(() => {
-    try {
-      return window.localStorage.getItem("vouchpilot-cookies") === "ok";
-    } catch {
-      return true;
-    }
-  });
-  useEffect(() => {
-    let raf = 0;
-    function onScroll() {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const el = document.documentElement;
-        const max = el.scrollHeight - el.clientHeight;
-        setScrollPct(max > 0 ? Math.min(100, (el.scrollTop / max) * 100) : 0);
-        setShowTop(el.scrollTop > 600);
-      });
-    }
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-  function go(label: Area) {
-    setArea(label);
-    setNavOpen(false);
-    window.scrollTo({ top: 0 });
+
+  if (!entered) {
+    return (
+      <Welcome
+        runs={runs}
+        theme={theme}
+        onThemeToggle={() => setTheme((value) => value === "light" ? "dark" : "light")}
+        onEnter={() => setEntered(true)}
+        onSystem={() => { setEntered(true); setArea("System"); }}
+      />
+    );
   }
-  function acceptCookies() {
-    try {
-      window.localStorage.setItem("vouchpilot-cookies", "ok");
-    } catch { /* private mode: banner simply returns */ }
-    setCookiesOk(true);
-  }
-  if (!entered) return <Welcome runs={runs} onEnter={() => setEntered(true)} onExplore={() => { setEntered(true); setArea("System"); }} theme={theme} onThemeToggle={toggleTheme} />;
-  const navItems = nav.map((item) => item.label === "Review"
-    ? { ...item, count: predictions.filter((p) => p.needs_review).length || undefined }
-    : item);
-  const legal = area === "Privacy" || area === "Terms" || area === "Cookies" || area === "Refunds";
-  return <div className="app-shell">
-    <a className="skip-link" href="#main">Skip to content</a>
-    <div className="scroll-progress" style={{ width: `${scrollPct}%` }} />
-    <aside className={`sidebar${navOpen ? " open" : ""}`}>
-      <div className="sidebar-top"><Logo />
-        <nav aria-label="Primary navigation">{navItems.map((item) => <button key={item.label} className={area === item.label ? "active" : ""} onClick={() => go(item.label)}><Icon name={item.icon} /><span>{item.label}</span>{item.count ? <b>{item.count}</b> : null}</button>)}</nav>
-      </div>
-      <div className="sidebar-bottom">
-        <div className="sidebar-theme"><span>Appearance</span><ThemeToggle theme={theme} onToggle={toggleTheme} /></div>
-        <div className="offline-card"><Icon name="shield" size={17} /><div><strong>{scorerName(settings.scorer)} ready</strong><small>Private to this device</small></div><i className="runtime-pulse" /></div>
-      </div>
-    </aside>
-    {navOpen && <div className="backdrop" onClick={() => setNavOpen(false)} />}
-    <main id="main">
-      <div className="mobile-top"><Logo /><button aria-label="Open navigation" onClick={() => setNavOpen(true)}><Icon name="more" /></button></div>
-      {!legal && <p className="crumbs">VouchPilot / {area}</p>}
-      {area === "Dashboard" && <Dashboard navigate={go} runs={runs} predictions={predictions} />}
-      {area === "Classify" && <Classify settings={settings} initial={predictions} onDone={classified} />}
-      {area === "Review" && <Review predictions={predictions} labels={labels} threshold={Number(settings.auto_approve_threshold ?? 85)} onExport={exported} />}
-      {area === "System" && <System navigate={go} />}
-      {area === "Settings" && <Settings theme={theme} onThemeToggle={toggleTheme} onSaved={setSettings} />}
-      {area === "Privacy" && <Privacy />}
-      {area === "Terms" && <Terms />}
-      {area === "Cookies" && <Cookies />}
-      {area === "Refunds" && <Refunds />}
-      <Footer navigate={go} />
-    </main>
-    <a className="contact-fab" href="mailto:wagdemehul@gmail.com?subject=VouchPilot%20question" aria-label="Contact us by email">@</a>
-    {showTop && <button className="back-top" aria-label="Back to top" onClick={() => window.scrollTo({ top: 0 })}>↑</button>}
-    {!cookiesOk && <div className="cookie-banner" role="dialog" aria-label="Cookie notice"><span>No tracking cookies here — VouchPilot keeps only your theme and settings on this device.</span><button className="primary-button" onClick={acceptCookies}>Got it</button></div>}
-  </div>;
+
+  const reviewCount = predictions.filter((prediction) => prediction.needs_review).length;
+  const isLegal = ["Privacy", "Terms", "Cookies", "Refunds"].includes(area);
+
+  return (
+    <div className="app-shell">
+      <a className="skip-link" href="#main">Skip to content</a>
+      <aside className={`sidebar ${navOpen ? "open" : ""}`}>
+        <div className="sidebar-top">
+          <Logo />
+          <div className="workspace-label"><span>LOCAL WORKSPACE</span><strong>VouchPilot</strong></div>
+          <nav aria-label="Primary">
+            {NAV.map((item) => (
+              <button key={item.label} className={area === item.label ? "active" : ""} onClick={() => navigate(item.label)}>
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
+                {item.label === "Review" && reviewCount ? <b>{reviewCount}</b> : null}
+              </button>
+            ))}
+          </nav>
+        </div>
+        <div className="sidebar-bottom">
+          <div className="local-status"><StatusDot /><div><strong>Local runtime</strong><span>{scorerName(settings.scorer)} ready</span></div></div>
+          <div className="sidebar-theme"><span>Theme</span><ThemeToggle theme={theme} onToggle={() => setTheme((value) => value === "light" ? "dark" : "light")} /></div>
+        </div>
+      </aside>
+
+      {navOpen ? <button className="nav-backdrop" aria-label="Close navigation" onClick={() => setNavOpen(false)} /> : null}
+
+      <main id="main" className="main">
+        <div className="mobile-bar">
+          <Logo compact />
+          <button className="icon-btn" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Icon name="more" /></button>
+        </div>
+
+        {!isLegal ? (
+          <div className="breadcrumbs">
+            <span>VouchPilot</span><Icon name="chevron" size={13} /><strong>{area}</strong>
+          </div>
+        ) : null}
+
+        {area === "Dashboard" ? <Dashboard navigate={navigate} runs={runs} predictions={predictions} scorer={String(settings.scorer ?? "keyword")} /> : null}
+        {area === "Classify" ? <Classify settings={settings} initial={predictions} onDone={commitRun} /> : null}
+        {area === "Review" ? <Review
+          predictions={predictions}
+          labels={labels}
+          threshold={Number(settings.auto_approve_threshold ?? 85)}
+          exportFormat={String(settings.export_format ?? "jsonl")}
+          includeEvidence={Boolean(settings.include_evidence ?? true)}
+          onExport={commitReview}
+        /> : null}
+        {area === "System" ? <System /> : null}
+        {area === "Settings" ? <SettingsPage theme={theme} onThemeToggle={() => setTheme((value) => value === "light" ? "dark" : "light")} settings={settings} onSaved={setSettings} /> : null}
+
+        {area === "Privacy" ? (
+          <Legal eyebrow="PRIVACY" title="Privacy policy">
+            <p>VouchPilot is local-first. The browser communicates with a local API endpoint and the classification pipeline runs on the same machine. Recent run metadata and appearance settings may be kept in browser local storage.</p>
+            <h2>Data handling</h2>
+            <p>Uploaded workbooks and document images are processed by the local application. They are not intentionally uploaded to a third-party service by the VouchPilot UI.</p>
+            <h2>Contact</h2>
+            <p>For privacy questions or vulnerability reports, contact the project maintainer through the repository.</p>
+          </Legal>
+        ) : null}
+
+        {area === "Terms" ? (
+          <Legal eyebrow="TERMS" title="Terms of use">
+            <p>VouchPilot is decision-support software for classifying accounting transactions. It is not tax, audit or legal advice.</p>
+            <p>You remain responsible for reviewing classifications and complying with applicable GST requirements before filing or posting entries.</p>
+          </Legal>
+        ) : null}
+
+        {area === "Cookies" ? (
+          <Legal eyebrow="COOKIES" title="Cookie policy">
+            <p>The web UI does not require advertising or tracking cookies. Functional preferences such as theme and recent run metadata may be stored in local storage.</p>
+          </Legal>
+        ) : null}
+
+        {area === "Refunds" ? (
+          <Legal eyebrow="REFUNDS" title="Refund policy">
+            <p>The current VouchPilot workspace contains no in-app purchase flow. This page is retained as a placeholder for any future paid distribution policy.</p>
+          </Legal>
+        ) : null}
+
+        <Footer navigate={navigate} />
+      </main>
+    </div>
+  );
 }
+
+export default App;

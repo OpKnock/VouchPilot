@@ -189,6 +189,11 @@ def intake_to_xlsx(in_path: str, out_path: str,
     images yield a single OCR row; xlsx/csv inputs are normalised through.
     """
     kind = detect_type(in_path)
+    if Path(in_path).suffix.lower() == ".xls":
+        raise IntakeError(
+            "legacy .xls is recognized as Excel input but cannot be parsed by openpyxl; "
+            "save it as .xlsx before intake"
+        )
     langs_str = "+".join(langs)
     rows: list[dict] = []
     pages = 1
