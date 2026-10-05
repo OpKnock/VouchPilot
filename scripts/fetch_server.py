@@ -23,6 +23,16 @@ def download(url: str, path: str) -> None:
     print('saved %s (%d MB)' % (path, os.path.getsize(path) // 1000000), flush=True)
 
 
+def safe_extract(archive: zipfile.ZipFile, target: str | os.PathLike) -> None:
+    """Extract an archive only when every member stays under *target*."""
+    root = os.path.realpath(os.fspath(target))
+    for member in archive.infolist():
+        destination = os.path.realpath(os.path.join(root, member.filename))
+        if os.path.commonpath([root, destination]) != root:
+            raise ValueError(f"unsafe archive path: {member.filename}")
+    archive.extractall(root)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog='python scripts/fetch_server.py')
     parser.add_argument('--out', default=os.path.join('tools', 'llama-server', 'bin'))
@@ -42,7 +52,7 @@ def main(argv=None) -> int:
                 return 2
         try:
             with zipfile.ZipFile(dest) as archive:
-                archive.extractall(args.out)
+                safe_extract(archive, args.out)
         except Exception as exc:
             print('ERROR: extract failed (%s)' % (exc,), file=sys.stderr)
             return 2
