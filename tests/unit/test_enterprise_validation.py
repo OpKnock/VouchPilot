@@ -6,9 +6,22 @@ import csv
 import json
 from pathlib import Path
 
+import importlib.util
+
 import pytest
 
-from scripts.validate_enterprise import validate
+
+def _load_validate():
+    path = Path(__file__).resolve().parents[2] / "scripts" / "validate_enterprise.py"
+    spec = importlib.util.spec_from_file_location("vouchpilot_validate_enterprise", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("could not load validation script")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.validate
+
+
+validate = _load_validate()
 
 
 def _write_gold(path: Path) -> None:
