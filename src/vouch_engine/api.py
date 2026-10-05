@@ -497,7 +497,7 @@ def create_app() -> FastAPI:
         try:
             patch = dict(patch or {})
             if app.state.saas_mode:
-                merged = _settings.load()
+                merged = dict(_settings.DEFAULTS)
                 merged.update(patch)
                 return _settings.validate(merged)
             return _settings.save(patch)
