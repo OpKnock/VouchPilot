@@ -124,24 +124,33 @@ def _run_frozen() -> int:
 
     from vouch_engine.api import create_app
 
+    procs: list[subprocess.Popen] = []
     os.environ["VOUCHPILOT_APP_ROOT"] = str(APP_ROOT)
     os.environ["VOUCHPILOT_WEB_ROOT"] = str(RESOURCE_ROOT / "web" / "dist")
+    try:
+        _start_llama(procs)
 
-    # The standalone build keeps the API and UI in the same executable.
-    if "--no-browser" not in sys.argv[1:]:
-        timer = threading.Timer(1.25, _open_browser)
-        timer.daemon = True
-        timer.start()
+        # The standalone build keeps the API and UI in the same executable.
+        if "--no-browser" not in sys.argv[1:]:
+            timer = threading.Timer(1.25, _open_browser)
+            timer.daemon = True
+            timer.start()
 
-    _log("Starting standalone VouchPilot on http://127.0.0.1:8000/")
-    uvicorn.run(
-        create_app(),
-        host="127.0.0.1",
-        port=8000,
-        log_level="warning",
-        access_log=False,
-    )
-    return 0
+        _log("Starting standalone VouchPilot on http://127.0.0.1:8000/")
+        uvicorn.run(
+            create_app(),
+            host="127.0.0.1",
+            port=8000,
+            log_level="warning",
+            access_log=False,
+        )
+        return 0
+    finally:
+        for proc in procs:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
 
 
 def _python() -> str:
