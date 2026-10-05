@@ -94,10 +94,31 @@ function parsePredictionResponse(payload: unknown): PredictionResponse {
   return { predictions, n_rows: nRows, invalid };
 }
 
-const BASE =
+export const BASE =
   ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_URL as
     | string
     | undefined) ?? "";
+
+const RUNTIME_MODE =
+  ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_RUNTIME_MODE as
+    | string
+    | undefined) ?? "";
+
+const DESKTOP_DOWNLOAD_URL =
+  ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_DESKTOP_DOWNLOAD_URL as
+    | string
+    | undefined) ?? "/desktop-package";
+
+export function isHostedMode(): boolean {
+  if (RUNTIME_MODE.toLowerCase() === "hosted") return true;
+  if (RUNTIME_MODE.toLowerCase() === "local") return false;
+  if (!BASE || typeof window === "undefined") return false;
+  try {
+    return new URL(BASE, window.location.origin).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
 
 export class ApiError extends Error {
   status: number;
@@ -124,7 +145,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch {
     throw new ApiError(
-      "VouchPilot could not reach the local API. Start the backend and try again.",
+      isHostedMode()
+        ? "VouchPilot could not reach the hosted service. Check the service URL and try again."
+        : "VouchPilot could not reach the local API. Start the backend and try again.",
       0,
       null,
     );
@@ -176,5 +199,12 @@ export const api = {
     });
     return parsePredictionResponse(payload);
   },
-  launcherUrl: () => BASE + "/desktop-package",
+  launcherUrl: () =>
+    DESKTOP_DOWNLOAD_URL.startsWith("/")
+      ? BASE + DESKTOP_DOWNLOAD_URL
+      : DESKTOP_DOWNLOAD_URL,
+  desktopDownloadUrl: () =>
+    DESKTOP_DOWNLOAD_URL.startsWith("/")
+      ? BASE + DESKTOP_DOWNLOAD_URL
+      : DESKTOP_DOWNLOAD_URL,
 };

@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import baseline, evidence, normalise, perspective, validate
@@ -29,6 +30,27 @@ except (TypeError, ValueError):
     MAX_UPLOAD_BYTES = DEFAULT_MAX_UPLOAD_BYTES
 MAX_WORKERS = 8
 DEFAULT_LLM_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1", "llm"}
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _app_root() -> Path:
+    configured = os.getenv("VOUCHPILOT_APP_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(__file__).resolve().parents[2]
+
+
+def _web_root() -> Path:
+    configured = os.getenv("VOUCHPILOT_WEB_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return _app_root() / "web" / "dist"
 
 _ALLOWED_UPLOADS = {
     ".xlsx",
@@ -330,7 +352,22 @@ def _cleanup(paths: list[str]) -> None:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="VouchIQ VouchEngine", version=VERSION)
+    app = FastAPI(title="VouchPilot", version=VERSION)
+    app.state.saas_mode = _env_flag("VOUCH_SAAS_MODE")
+
+    cors_origins = [
+        origin.strip()
+        for origin in os.getenv("VOUCH_CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["*"],
+        )
 
     @app.get("/health")
     def health() -> dict:
@@ -339,6 +376,7 @@ def create_app() -> FastAPI:
         return {
             "status": "degraded" if failed else "ok",
             "version": VERSION,
+            "mode": "saas" if app.state.saas_mode else "local",
             "modules": modules,
         }
 
@@ -457,7 +495,12 @@ def create_app() -> FastAPI:
         from . import settings as _settings
 
         try:
-            return _settings.save(dict(patch or {}))
+            patch = dict(patch or {})
+            if app.state.saas_mode:
+                merged = dict(_settings.DEFAULTS)
+                merged.update(patch)
+                return _settings.validate(merged)
+            return _settings.save(patch)
         except (TypeError, ValueError, OSError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -475,7 +518,7 @@ def create_app() -> FastAPI:
 
         weights: list[str] = []
         try:
-            weights_dir = Path(__file__).resolve().parents[2] / "models"
+            weights_dir = _app_root() / "models"
             weights = sorted(path.name for path in weights_dir.glob("*.gguf"))
         except OSError:
             pass
@@ -491,7 +534,7 @@ def create_app() -> FastAPI:
     def launcher():
         from fastapi.responses import FileResponse
 
-        path = Path(__file__).resolve().parents[2] / "start-vouchpilot.bat"
+        path = _app_root() / "start-vouchpilot.bat"
         if not path.exists():
             raise HTTPException(status_code=404, detail="launcher not packaged yet")
         return FileResponse(str(path), filename="VouchPilot-Launcher.bat")
@@ -501,7 +544,7 @@ def create_app() -> FastAPI:
         import io as _io
         import zipfile as _zf
 
-        root = Path(__file__).resolve().parents[2]
+        root = _app_root()
         exe = root / "VouchPilot.exe"
         if not exe.exists():
             raise HTTPException(
@@ -539,7 +582,7 @@ def create_app() -> FastAPI:
     try:
         from fastapi.staticfiles import StaticFiles
 
-        dist = Path(__file__).resolve().parents[2] / "web" / "dist"
+        dist = _web_root()
         if (dist / "index.html").is_file():
             app.mount("/", StaticFiles(directory=dist, html=True), name="web")
     except Exception:

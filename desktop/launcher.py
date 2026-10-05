@@ -1,31 +1,61 @@
-﻿"""VouchPilot desktop launcher (frozen to VouchPilot.exe with PyInstaller).
+"""VouchPilot desktop launcher for source and standalone Windows builds.
 
-Never opens a browser on its own: it prints the URL and the user opens it.
-Pass --open-browser once to open a single tab deliberately.
+Source mode starts the API as a child process. Frozen/PyInstaller mode runs the
+FastAPI server in the bundled Python runtime, so end users do not need Python.
 """
+
+from __future__ import annotations
+
 import os
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
+import webbrowser
+from pathlib import Path
 
-if getattr(sys, "frozen", False):
-    ROOT = os.path.dirname(os.path.abspath(sys.executable))
-else:
-    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LLAMA = os.path.join(ROOT, "tools", "llama-server", "bin", "llama-server.exe")
-API = "http://127.0.0.1:8000/health"
+FROZEN = bool(getattr(sys, "frozen", False))
+APP_ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parents[1]
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", APP_ROOT))
+API_URL = "http://127.0.0.1:8000/"
+API_HEALTH = API_URL + "health"
+LLAMA_HEALTH = "http://127.0.0.1:8080/health"
+LOG_PATH = APP_ROOT / "VouchPilot.log"
 
 
-def healthy(url, timeout=3):
+def _log(message: str) -> None:
+    line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}"
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
-            return r.status == 200
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    except OSError:
+        pass
+    if not FROZEN:
+        print(line)
+
+
+def _error(message: str) -> None:
+    _log("ERROR: " + message)
+    if FROZEN:
+        try:
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(0, message, "VouchPilot", 0x10)
+        except Exception:
+            pass
+
+
+def healthy(url: str, timeout: float = 3) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            return response.status == 200
     except Exception:
         return False
 
 
-def wait_for_healthy(url, attempts=30, delay=2):
+def wait_for_healthy(url: str, attempts: int = 30, delay: float = 2) -> bool:
     for attempt in range(max(1, attempts)):
         if healthy(url):
             return True
@@ -34,68 +64,150 @@ def wait_for_healthy(url, attempts=30, delay=2):
     return False
 
 
-def _python():
-    import shutil
+def _model_candidates() -> list[Path]:
+    models_dir = APP_ROOT / "models"
+    try:
+        return sorted(
+            (path for path in models_dir.glob("*.gguf") if path.is_file()),
+            key=lambda path: path.stat().st_size,
+        )
+    except OSError:
+        return []
 
-    if getattr(sys, "frozen", False):
-        found = shutil.which("python") or shutil.which("python3")
-        if found:
-            return found
-        raise RuntimeError("python not found on PATH (needed for the API backend)")
+
+def _start_llama(procs: list[subprocess.Popen]) -> None:
+    candidates = _model_candidates()
+    llama = APP_ROOT / "tools" / "llama-server" / "bin" / "llama-server.exe"
+    if not candidates or healthy(LLAMA_HEALTH) or not llama.exists():
+        return
+
+    model = candidates[0]
+    _log(f"Starting local model server with {model.name}")
+    procs.append(
+        subprocess.Popen(
+            [
+                str(llama),
+                "-m",
+                str(model),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8080",
+                "-c",
+                "4096",
+                "--n-gpu-layers",
+                "99",
+                "--cache-type-k",
+                "q8_0",
+                "--cache-type-v",
+                "q8_0",
+                "--log-disable",
+            ],
+            cwd=str(APP_ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    )
+    if not wait_for_healthy(LLAMA_HEALTH, attempts=60, delay=5):
+        _log("Local model server did not become healthy; keyword/VouchPilot+ modes remain available.")
+
+
+def _open_browser() -> None:
+    try:
+        webbrowser.open(API_URL)
+    except Exception as exc:
+        _log(f"Browser open failed: {exc}")
+
+
+def _run_frozen() -> int:
+    import uvicorn
+
+    from vouch_engine.api import create_app
+
+    procs: list[subprocess.Popen] = []
+    os.environ["VOUCHPILOT_APP_ROOT"] = str(APP_ROOT)
+    os.environ["VOUCHPILOT_WEB_ROOT"] = str(RESOURCE_ROOT / "web" / "dist")
+    try:
+        _start_llama(procs)
+
+        # The standalone build keeps the API and UI in the same executable.
+        if "--no-browser" not in sys.argv[1:]:
+            timer = threading.Timer(1.25, _open_browser)
+            timer.daemon = True
+            timer.start()
+
+        _log("Starting standalone VouchPilot on http://127.0.0.1:8000/")
+        uvicorn.run(
+            create_app(),
+            host="127.0.0.1",
+            port=8000,
+            log_level="warning",
+            access_log=False,
+        )
+        return 0
+    finally:
+        for proc in procs:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+
+def _python() -> str:
+    if FROZEN:
+        raise RuntimeError("standalone mode does not require a Python executable")
     return sys.executable
 
 
-def main():
-    procs = []
-    try:
-        models_dir = os.path.join(ROOT, "models")
-        candidates = [(os.path.getsize(os.path.join(models_dir, f)), f)
-                      for f in os.listdir(models_dir) if f.endswith(".gguf")] \
-            if os.path.isdir(models_dir) else []
-    except Exception:
-        candidates = []
-    if candidates and not healthy(API) and os.path.exists(LLAMA):
-        gguf = sorted(candidates)[0][1]
-        procs.append(subprocess.Popen(
-            [LLAMA, "-m", os.path.join(ROOT, "models", gguf), "--host", "127.0.0.1",
-             "--port", "8080", "-c", "4096", "--n-gpu-layers", "99",
-             "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--log-disable"],
-            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        if not wait_for_healthy("http://127.0.0.1:8080/health", attempts=60, delay=5):
-            print("ERROR: llama server did not become healthy; continuing without model scorer.",
-                  file=sys.stderr)
-    env = dict(os.environ)
-    api = subprocess.Popen([_python(), "-m", "uvicorn", "vouch_engine.api:create_app",
-                            "--factory", "--host", "127.0.0.1", "--port", "8000"],
-                           cwd=ROOT, env={**env, "PYTHONPATH": os.path.join(ROOT, "src")},
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    procs.append(api)
-    if not wait_for_healthy(API, attempts=30, delay=2):
-        print(
-            "ERROR: VouchPilot API did not become healthy at http://127.0.0.1:8000/health. "
-            "Check Python dependencies and backend logs.",
-            file=sys.stderr,
-        )
-        for p in procs:
-            try:
-                p.terminate()
-            except Exception:
-                pass
-        return 1
-    print("VouchPilot running at http://127.0.0.1:8000/ - open it in your browser.")
-    print("Close this window to stop.")
-    if "--open-browser" in sys.argv[1:]:
-        import webbrowser
+def main() -> int:
+    if FROZEN:
+        return _run_frozen()
 
-        webbrowser.open("http://127.0.0.1:8000/")
+    procs: list[subprocess.Popen] = []
     try:
+        _start_llama(procs)
+        env = dict(os.environ)
+        env["VOUCHPILOT_APP_ROOT"] = str(APP_ROOT)
+        api = subprocess.Popen(
+            [
+                _python(),
+                "-m",
+                "uvicorn",
+                "vouch_engine.api:create_app",
+                "--factory",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8000",
+            ],
+            cwd=str(APP_ROOT),
+            env={**env, "PYTHONPATH": str(APP_ROOT / "src")},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        procs.append(api)
+
+        if not wait_for_healthy(API_HEALTH, attempts=30, delay=2):
+            _error(
+                "VouchPilot could not start its local API. "
+                "Check VouchPilot.log and the installed Python dependencies."
+            )
+            return 1
+
+        _log("VouchPilot is ready at http://127.0.0.1:8000/")
+        if "--no-browser" not in sys.argv[1:]:
+            _open_browser()
         api.wait()
+        return 0
     except KeyboardInterrupt:
-        pass
+        return 0
+    except Exception as exc:
+        _error(str(exc))
+        return 1
     finally:
-        for p in procs:
+        for proc in procs:
             try:
-                p.terminate()
+                proc.terminate()
             except Exception:
                 pass
 

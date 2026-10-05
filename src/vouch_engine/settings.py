@@ -43,6 +43,13 @@ def load(root: str | None = None) -> dict:
     return _validate(merged)
 
 
+def validate(values: dict) -> dict:
+    """Validate settings without persisting them."""
+    if not isinstance(values, dict):
+        raise TypeError("settings must be an object")
+    return _validate(dict(values))
+
+
 def _validate(values: dict) -> dict:
     result = dict(DEFAULTS)
     result.update({key: values[key] for key in DEFAULTS if key in values})
@@ -87,4 +94,4 @@ def save(patch: dict, root: str | None = None) -> dict:
     return merged
 
 
-__all__ = ["DEFAULTS", "FILENAME", "load", "save"]
+__all__ = ["DEFAULTS", "FILENAME", "load", "save", "validate"]

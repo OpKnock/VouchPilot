@@ -6,8 +6,8 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { api, type LabelInfo, type Prediction, type RunRecord } from "./api";
-import { loadRuns, saveRuns, THEME_KEY } from "./storage";
+import { api, isHostedMode, type LabelInfo, type Prediction, type RunRecord } from "./api";
+import { loadRuns, loadSettings, saveRuns, saveSettings, THEME_KEY } from "./storage";
 import { applyReviewToRuns } from "./review";
 import { exportablePredictions, predictionsToCsv } from "./export";
 
@@ -378,7 +378,7 @@ function Welcome({
         </nav>
         <div className="marketing-actions">
           <ThemeToggle theme={theme} onToggle={onThemeToggle} />
-          <a className="btn btn-secondary" href="/desktop-package" download>
+          <a className="btn btn-secondary" href={api.desktopDownloadUrl()} download>
             Desktop
           </a>
           <PrimaryButton onClick={onEnter}>
@@ -391,7 +391,7 @@ function Welcome({
         <section className="hero-section" id="product">
           <div className="hero-copy">
             <span className="eyebrow eyebrow-strong">
-              <StatusDot /> Offline GST voucher intelligence
+              <StatusDot /> {isHostedMode() ? "Hosted GST voucher workspace" : "Offline GST voucher intelligence"}
             </span>
             <h1>
               Make every transaction
@@ -411,7 +411,7 @@ function Welcome({
               </SecondaryButton>
             </div>
             <div className="trust-list">
-              <span><Icon name="lock" size={14} /> Local processing</span>
+              <span><Icon name="lock" size={14} /> {isHostedMode() ? "Hosted processing" : "Local processing"}</span>
               <span><Icon name="check" size={14} /> 27 voucher types</span>
               <span><Icon name="review" size={14} /> Human approval gate</span>
             </div>
@@ -421,7 +421,7 @@ function Welcome({
             <div className="hero-product-top">
               <div className="window-lights"><i /><i /><i /></div>
               <span>{last ? `Latest run · ${last.file}` : "Ready for your workbook"}</span>
-              <span className="runtime-badge"><StatusDot /> Local</span>
+              <span className="runtime-badge"><StatusDot /> {isHostedMode() ? "Hosted" : "Local"}</span>
             </div>
             <div className="hero-product-body">
               <div className="hero-product-title">
@@ -474,9 +474,9 @@ function Welcome({
 
         <section className="feature-grid" id="workflow">
           {[
-            ["classify", "Classify once", "Normalize messy headers and score rows with rules or a local open-weight model."],
+            ["classify", "Classify once", isHostedMode() ? "Normalize messy headers and score rows through your configured VouchPilot service." : "Normalize messy headers and score rows with rules or a local open-weight model."],
             ["review", "Review the edge cases", "See top alternatives, confidence and evidence before approving a row."],
-            ["shield", "Keep it private", "Inference and workspace state stay local; document intake runs on-device."],
+            ["shield", "Keep it private", isHostedMode() ? "Run through your private hosted service; workspace preferences and recent runs stay in this browser." : "Inference and workspace state stay local; document intake runs on-device."],
           ].map(([icon, title, body]) => (
             <article className="feature-card" key={title}>
               <span className="feature-icon"><Icon name={icon as IconName} /></span>
@@ -492,9 +492,10 @@ function Welcome({
             <h2>Built for financial data that should not leave the room.</h2>
           </div>
           <p>
-            VouchPilot is designed around local inference. The browser talks to
-            the local API, while model weights and transaction records stay on
-            the device.
+            {isHostedMode()
+              ? "In hosted mode, documents are processed by the configured VouchPilot service. Browser preferences and recent run metadata stay in this browser; review your hosting, access-control and retention policies before sending sensitive accounting data."
+              : "VouchPilot is designed around local inference. The browser talks to the local API, while model weights and transaction records stay on the device."
+            }
           </p>
         </section>
       </main>
@@ -743,7 +744,9 @@ function Classify({
       <PageHeader
         eyebrow="CLASSIFY / NEW RUN"
         title="Turn transactions into vouchers."
-        detail="Drop a workbook, CSV, PDF or bill image. The local API handles document intake, normalization and classification."
+        detail={isHostedMode()
+          ? "Drop a workbook, CSV, PDF or bill image. The configured VouchPilot service handles document intake, normalization and classification."
+          : "Drop a workbook, CSV, PDF or bill image. The local API handles document intake, normalization and classification."}
         action={
           <div className="page-actions">
             <input
@@ -801,7 +804,7 @@ function Classify({
       <section className="run-context">
         <div><span className="section-kicker">SCORER</span><strong>{scorerName(settings.scorer)}</strong><span>{String(settings.scorer ?? "keyword") === "server" ? "llama.cpp required" : "No model download required"}</span></div>
         <div><span className="section-kicker">REVIEW CUTOFF</span><strong>{threshold}%</strong><span>Below this is routed to Review</span></div>
-        <div><span className="section-kicker">PRIVACY</span><strong><StatusDot /> Local only</strong><span>Browser → local API → local engine</span></div>
+        <div><span className="section-kicker">PRIVACY</span><strong><StatusDot /> {isHostedMode() ? "Hosted service" : "Local only"}</strong><span>{isHostedMode() ? "Browser → configured API" : "Browser → local API → local engine"}</span></div>
         <div><span className="section-kicker">RUN STATUS</span><strong>{statusText}</strong><span>{rows.length ? `${rows.filter((r) => r.needs_review).length} need review` : "Waiting for input"}</span></div>
       </section>
 
@@ -1198,7 +1201,7 @@ function SettingsPage({
     setSaved(false);
     setError("");
     try {
-      const next = await api.saveSettings({
+      const patch = {
         scorer,
         auto_approve_threshold: threshold,
         challenger,
@@ -1206,7 +1209,11 @@ function SettingsPage({
         workers,
         export_format: format,
         include_evidence: evidence,
-      });
+      };
+      const next = isHostedMode()
+        ? { ...settings, ...patch }
+        : await api.saveSettings(patch);
+      if (isHostedMode()) saveSettings(next);
       onSaved(next);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 1800);
@@ -1251,7 +1258,7 @@ function SettingsPage({
 
         <section className="panel settings-panel">
           <div className="panel-head"><div><span className="section-kicker">PRIVACY & OUTPUT</span><h2>Local controls</h2></div><Icon name="shield" /></div>
-          <div className="local-note"><Icon name="lock" size={17} /><div><strong>Local by design</strong><span>Browser, API and model runtime all stay on the machine.</span></div></div>
+          <div className="local-note"><Icon name="lock" size={17} /><div><strong>{isHostedMode() ? "Hosted, browser-private preferences" : "Local by design"}</strong><span>{isHostedMode() ? "Predictions use the configured API; workspace preferences and recent runs stay in this browser." : "Browser, API and model runtime all stay on the machine."}</span></div></div>
           <div className="setting-row"><div><strong>Fraud / injection scanner</strong><span>Applied by the VouchPilot+ scorer to narration and bill signals.</span></div><Toggle enabled={fraud} onChange={() => setFraud((value) => !value)} label="Fraud and injection scanner" /></div>
           <div className="setting-row"><div><strong>Primary export format</strong><span>Controls the one-click final export in Review.</span></div><div className="segmented">{["jsonl", "csv"].map((value) => <button key={value} className={format === value ? "selected" : ""} onClick={() => setFormat(value)}>{value.toUpperCase()}</button>)}</div></div>
           <div className="setting-row"><div><strong>Include evidence</strong><span>Keep evidence tags and decision markers in exports.</span></div><Toggle enabled={evidence} onChange={() => setEvidence((value) => !value)} label="Include evidence" /></div>
@@ -1312,7 +1319,7 @@ function App() {
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>(() => loadRuns());
   const [labels, setLabels] = useState<LabelInfo[]>([]);
-  const [settings, setSettings] = useState<Settings>({});
+  const [settings, setSettings] = useState<Settings>(() => loadSettings());
   const [navOpen, setNavOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -1333,7 +1340,12 @@ function App() {
 
   useEffect(() => {
     void api.labels().then((response) => setLabels(response.labels)).catch(() => undefined);
-    void api.settings().then((response) => setSettings(response)).catch(() => undefined);
+    void api.settings()
+      .then((response) => {
+        const next = isHostedMode() ? loadSettings(response) : response;
+        setSettings(next);
+      })
+      .catch(() => undefined);
   }, []);
 
   function navigate(next: Area) {
@@ -1384,7 +1396,7 @@ function App() {
       <aside className={`sidebar ${navOpen ? "open" : ""}`}>
         <div className="sidebar-top">
           <Logo />
-          <div className="workspace-label"><span>LOCAL WORKSPACE</span><strong>VouchPilot</strong></div>
+          <div className="workspace-label"><span>{isHostedMode() ? "HOSTED WORKSPACE" : "LOCAL WORKSPACE"}</span><strong>VouchPilot</strong></div>
           <nav aria-label="Primary">
             {NAV.map((item) => (
               <button key={item.label} className={area === item.label ? "active" : ""} onClick={() => navigate(item.label)}>
@@ -1396,7 +1408,7 @@ function App() {
           </nav>
         </div>
         <div className="sidebar-bottom">
-          <div className="local-status"><StatusDot /><div><strong>Local runtime</strong><span>{scorerName(settings.scorer)} ready</span></div></div>
+          <div className="local-status"><StatusDot /><div><strong>{isHostedMode() ? "Hosted runtime" : "Local runtime"}</strong><span>{scorerName(settings.scorer)} ready</span></div></div>
           <div className="sidebar-theme"><span>Theme</span><ThemeToggle theme={theme} onToggle={() => setTheme((value) => value === "light" ? "dark" : "light")} /></div>
         </div>
       </aside>

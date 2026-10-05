@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vouch-engine"
-version = "0.2.1"
+version = "0.3.0"
 description = "VouchIQ VouchEngine: offline voucher classification for Indian accounting data"
 requires-python = ">=3.11"
 dependencies = [
