@@ -69,7 +69,7 @@ For the optional local llama.cpp service (with `models/Qwen3.5-4B-Q4_K_M.gguf` p
 docker compose --profile llm up --build
 ```
 
-Set `VOUCH_MAX_UPLOAD_BYTES` to change the server-side upload ceiling (default 50 MiB).
+Set `VOUCH_MAX_UPLOAD_BYTES` to change the server-side upload ceiling (default 50 MiB). The API caps worker concurrency at 8 and permits local LLM hosts by default; intentionally remote model endpoints must be added to `VOUCH_LLM_ALLOWED_HOSTS`.
 
 ## 3. Try sample data
 
@@ -100,6 +100,7 @@ Interactive docs: `http://127.0.0.1:8000/docs`
 | `/health` | GET | Liveness + module import checks |
 | `/predict` | POST | Classify XLSX, XLSM, CSV, PDF or supported bill image |
 | `/predict-rows` | POST | Classify raw JSON rows |
+| `/audit` | POST | Compare recorded voucher types against predictions |
 | `/evaluate` | POST | Compare predictions against gold labels |
 | `/labels` | GET | Return all 27 voucher categories |
 | `/settings` | GET/POST | Persist local workspace preferences |

@@ -37,7 +37,7 @@ type PredictionResponse = {
   invalid: number;
 };
 
-function isPrediction(value: unknown): value is Prediction {
+export function isPrediction(value: unknown): value is Prediction {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
   const topK = row.top_k;

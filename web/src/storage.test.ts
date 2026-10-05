@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 import test, { afterEach } from "node:test";
 
 import type { Prediction, RunRecord } from "./api.ts";
-import { RUNS_KEY, saveRuns } from "./storage.ts";
+import { RUNS_KEY, loadRuns, saveRuns } from "./storage.ts";
 
 const realWindow = globalThis.window;
 
@@ -57,4 +57,29 @@ test("storage pressure retries with fewer runs while preserving predictions", ()
   const recovered = JSON.parse(stored[RUNS_KEY]) as RunRecord[];
   assert.equal(recovered.length, 8);
   assert.ok(recovered[0].predictions.length > 0);
+});
+
+    
+test("loadRuns drops malformed persisted predictions instead of crashing the workspace", () => {
+  globalThis.window = {
+    localStorage: {
+      getItem: () =>
+        JSON.stringify([
+          {
+            id: "run-1",
+            file: "ledger.xlsx",
+            rows: 1,
+            accuracy: null,
+            status: "Completed",
+            completed: "2026-10-05T00:00:00Z",
+            predictions: [{ row_id: "bad", confidence: "not-a-number" }],
+          },
+        ]),
+      setItem: () => undefined,
+    },
+  } as unknown as Window & typeof globalThis;
+
+  const runs = loadRuns();
+  assert.equal(runs.length, 1);
+  assert.deepEqual(runs[0].predictions, []);
 });

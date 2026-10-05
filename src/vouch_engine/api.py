@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import csv
 import os
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import baseline, evidence, normalise, perspective, validate
 from . import evaluate as eval_mod
@@ -25,6 +27,8 @@ try:
     )
 except (TypeError, ValueError):
     MAX_UPLOAD_BYTES = DEFAULT_MAX_UPLOAD_BYTES
+MAX_WORKERS = 8
+DEFAULT_LLM_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1", "llm"}
 
 _ALLOWED_UPLOADS = {
     ".xlsx",
@@ -44,7 +48,7 @@ class RowsIn(BaseModel):
     rows: list[dict[str, Any]]
     scorer: str = "keyword"
     endpoint: str = DEFAULT_LLM_ENDPOINT
-    workers: int = 1
+    workers: int = Field(default=1, ge=1, le=MAX_WORKERS)
     challenge: bool = False
     fraud: bool = True
 
@@ -54,11 +58,47 @@ class EvalIn(BaseModel):
     pred: list[dict[str, Any]]
 
 
+class AuditIn(BaseModel):
+    records: list[dict[str, Any]]
+    predictions: list[dict[str, Any]]
+
+
+def _allowed_llm_hosts() -> set[str]:
+    configured = os.getenv("VOUCH_LLM_ALLOWED_HOSTS", "")
+    hosts = {host.strip().lower() for host in configured.split(",") if host.strip()}
+    return DEFAULT_LLM_ALLOWED_HOSTS | hosts
+
+
+def validate_llm_endpoint(endpoint: str) -> str:
+    try:
+        parsed = urlsplit(str(endpoint))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid LLM endpoint") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=422, detail="invalid LLM endpoint")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise HTTPException(status_code=422, detail="LLM endpoint must not contain credentials, query, or fragment")
+    host = parsed.hostname.lower().rstrip(".")
+    if host not in _allowed_llm_hosts():
+        raise HTTPException(
+            status_code=422,
+            detail=f"LLM endpoint host '{host}' is not allowed; use a local host or configure VOUCH_LLM_ALLOWED_HOSTS",
+        )
+    return endpoint.rstrip("/")
+
+
+def _clamp_workers(workers: int) -> int:
+    try:
+        return max(1, min(MAX_WORKERS, int(workers)))
+    except (TypeError, ValueError):
+        return 1
+
+
 def _make_scorer(name: str, endpoint: str, fraud: bool = True):
     if name == "server":
         from .scorer import LlamaServerScorer
 
-        return LlamaServerScorer(endpoint=endpoint)
+        return LlamaServerScorer(endpoint=validate_llm_endpoint(endpoint))
     if name == "stub":
         from .scorer import StubScorer
 
@@ -68,7 +108,7 @@ def _make_scorer(name: str, endpoint: str, fraud: bool = True):
 
         return VouchPilotScorer(
             base="keyword",
-            endpoint=endpoint,
+            endpoint=validate_llm_endpoint(endpoint),
             fraud=fraud,
             firewall=fraud,
         )
@@ -193,8 +233,6 @@ def classify_raw_rows(
     challenge: bool = False,
     fraud: bool = True,
 ) -> tuple[list[dict], int]:
-    import concurrent.futures
-
     if scorer_name not in {"stub", "keyword", "server", "vouchpilot"}:
         raise HTTPException(status_code=422, detail="unknown scorer")
     headers = sorted({k for row in raw_rows for k in row.keys()})
@@ -202,6 +240,8 @@ def classify_raw_rows(
     canonical = normalise.to_canonical(raw_rows, mapping)
     perspective.resolve(canonical)
     scorer_obj = _make_scorer(scorer_name, endpoint, fraud)
+
+    workers = _clamp_workers(workers)
 
     challenger = None
     if challenge and hasattr(scorer_obj, "_complete"):
@@ -328,6 +368,7 @@ def create_app() -> FastAPI:
 
         try:
             data = _read_input(source_paths[0], suffix)
+            input_rows = len(data.get("rows", []))
             preds, invalid = classify_raw_rows(
                 list(data.get("rows", [])),
                 scorer,
@@ -336,10 +377,16 @@ def create_app() -> FastAPI:
                 challenge,
                 fraud,
             )
-            return {"predictions": preds, "n_rows": len(preds), "invalid": invalid}
+            return {"predictions": preds, "n_rows": input_rows, "invalid": invalid}
         except HTTPException:
             raise
         except Exception as exc:
+            from .scorer import ScorerResponseError, ScorerUnavailableError
+
+            if isinstance(exc, ScorerUnavailableError):
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            if isinstance(exc, ScorerResponseError):
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
             raise HTTPException(status_code=500, detail=f"pipeline failed: {exc}") from exc
         finally:
             # PDF/image intake can create an adjacent .rows.xlsx artifact.
@@ -368,8 +415,23 @@ def create_app() -> FastAPI:
         except HTTPException:
             raise
         except Exception as exc:
+            from .scorer import ScorerResponseError, ScorerUnavailableError
+
+            if isinstance(exc, ScorerUnavailableError):
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            if isinstance(exc, ScorerResponseError):
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
             raise HTTPException(status_code=500, detail=f"pipeline failed: {exc}") from exc
-        return {"predictions": preds, "n_rows": len(preds), "invalid": invalid}
+        return {"predictions": preds, "n_rows": len(body.rows), "invalid": invalid}
+
+    @app.post("/audit")
+    def audit(body: AuditIn) -> dict:
+        from . import audit as audit_mod
+
+        return audit_mod.audit_recorded_vs_predicted(
+            list(body.records),
+            list(body.predictions),
+        )
 
     @app.post("/evaluate")
     def evaluate(body: EvalIn) -> dict:

@@ -19,6 +19,9 @@ from PIL import Image
 __all__ = [
     "IntakeError",
     "TESSDATA_DIR",
+    "MAX_IMAGE_PIXELS",
+    "MAX_PDF_PAGES",
+    "MAX_PDF_PAGE_PIXELS",
     "detect_type",
     "intake_to_xlsx",
     "ocr_image",
@@ -43,7 +46,10 @@ _TESSERACT_HINT = (
     "(see specs/005-real-world-intake/spec.md)"
 )
 
-_DEFAULT_LANGS = ("hin", "eng")
+_DEFAULT_LANGS = ("hin", "eng", "mar", "guj")
+MAX_IMAGE_PIXELS = 25_000_000
+MAX_PDF_PAGES = 100
+MAX_PDF_PAGE_PIXELS = 25_000_000
 
 _XLSX_EXTS = frozenset({".xlsx", ".xlsm", ".xls"})
 _IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp"})
@@ -87,7 +93,10 @@ def pdf_to_text(path: str) -> str:
 
 
 def pdf_page_to_image(path: str, page: int = 0, dpi: int = 200) -> Image.Image:
-    """Render one PDF page to a PIL image via pypdfium2 (scale = dpi / 72)."""
+    """Render one PDF page to a bounded PIL image via pypdfium2."""
+    if dpi <= 0:
+        raise IntakeError("PDF render dpi must be positive")
+    _enforce_pdf_render_limit(path, page, dpi)
     import pypdfium2 as pdfium
 
     doc = pdfium.PdfDocument(path)
@@ -102,14 +111,53 @@ def tesseract_available() -> bool:
     return shutil.which("tesseract") is not None
 
 
+def _enforce_image_limit(image: Image.Image) -> None:
+    pixels = int(image.width) * int(image.height)
+    if pixels > MAX_IMAGE_PIXELS:
+        raise IntakeError(
+            f"image is too large ({pixels:,} pixels); maximum is {MAX_IMAGE_PIXELS:,}"
+        )
+
+
+def _enforce_pdf_page_limit(path: str) -> int:
+    import fitz
+
+    with fitz.open(path) as doc:
+        pages = len(doc)
+    if pages > MAX_PDF_PAGES:
+        raise IntakeError(f"PDF has {pages} pages; maximum is {MAX_PDF_PAGES}")
+    return pages
+
+
+def _enforce_pdf_render_limit(path: str, page: int, dpi: int) -> None:
+    import fitz
+
+    with fitz.open(path) as doc:
+        if page < 0 or page >= len(doc):
+            raise IntakeError(f"PDF page index {page} is out of range")
+        rect = doc[page].rect
+    width_px = max(1, round(rect.width * dpi / 72))
+    height_px = max(1, round(rect.height * dpi / 72))
+    pixels = width_px * height_px
+    if pixels > MAX_PDF_PAGE_PIXELS:
+        raise IntakeError(
+            f"rendered PDF page is too large ({pixels:,} pixels); "
+            f"maximum is {MAX_PDF_PAGE_PIXELS:,}"
+        )
+
+
 def ocr_image(image: Image.Image, langs: tuple = ("hin", "eng"), psm: int = 6) -> str:
     """OCR a PIL image with Tesseract; narrow images (<800px wide) are upscaled 2x first."""
     if not tesseract_available():
         raise IntakeError(_TESSERACT_HINT)
     import pytesseract
 
+    _enforce_image_limit(image)
     if image.width < 800:
-        image = image.resize((image.width * 2, image.height * 2), Image.LANCZOS)
+        scaled_pixels = (image.width * 2) * (image.height * 2)
+        if scaled_pixels <= MAX_IMAGE_PIXELS:
+            image = image.resize((image.width * 2, image.height * 2), Image.LANCZOS)
+    _enforce_image_limit(image)
     return pytesseract.image_to_string(image, lang="+".join(langs), config=f"--oem 1 --psm {psm}")
 
 
@@ -199,6 +247,7 @@ def intake_to_xlsx(in_path: str, out_path: str,
     pages = 1
     ocr_used = False
     if kind == "pdf":
+        _enforce_pdf_page_limit(in_path)
         import fitz
 
         doc = fitz.open(in_path)
@@ -218,26 +267,47 @@ def intake_to_xlsx(in_path: str, out_path: str,
             rows.append({"currency": "INR", "narration": ""})
     elif kind == "image":
         with Image.open(in_path) as img:
+            _enforce_image_limit(img)
             img.load()
             ocr_text = ocr_image(img, langs)
         ocr_used = True
         rows.append(_ensure_narration(parse_invoice_fields(ocr_text), ocr_text))
     elif kind == "csv":
         with open(in_path, newline="", encoding="utf-8-sig") as handle:
-            rows = [dict(r) for r in csv.DictReader(handle)]
-        rows = [r for r in rows if any(str(v).strip() for v in r.values())]
+            sample = handle.read(8192)
+            handle.seek(0)
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            except csv.Error:
+                dialect = csv.excel
+            grid = list(csv.reader(handle, dialect))
+
+        from .ingest import detect_header_row
+
+        header_idx = detect_header_row(grid, scan_limit=15) if grid else 0
+        if grid:
+            headers = []
+            seen: dict[str, int] = {}
+            for index, cell in enumerate(grid[header_idx]):
+                name = str(cell).strip() or f"col_{index}"
+                seen[name] = seen.get(name, 0) + 1
+                if seen[name] > 1:
+                    name = f"{name}_{seen[name]}"
+                headers.append(name)
+            for values in grid[header_idx + 1:]:
+                if not any(str(value).strip() for value in values):
+                    continue
+                rows.append({
+                    header: values[index] if index < len(values) else ""
+                    for index, header in enumerate(headers)
+                })
         if not rows:
             rows = [{"currency": "INR", "narration": ""}]
     elif kind == "xlsx":
-        import openpyxl
+        from .messy import read_messy_xlsx
 
-        wb = openpyxl.load_workbook(in_path, read_only=True, data_only=True)
-        grid = list(wb.active.values)
-        wb.close()
-        if grid and any(c is not None and str(c).strip() for c in grid[0]):
-            headers_in = [str(c).strip() if c is not None else "" for c in grid[0]]
-            rows = [{h: ("" if v is None else v) for h, v in zip(headers_in, r)} for r in grid[1:]]
-            rows = [r for r in rows if any(str(v).strip() for v in r.values())]
+        data = read_messy_xlsx(in_path, pick_best=True)
+        rows = list(data.get("rows", []))
         if not rows:
             rows = [{"currency": "INR", "narration": ""}]
     _write_rows(rows, out_path)

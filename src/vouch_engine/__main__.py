@@ -34,6 +34,8 @@ import urllib.request
 from .labels import LABEL_NAMES
 from .schemas import Prediction
 
+MAX_WORKERS = 8
+
 UPSTREAM_MODULES = (
     "ingest",
     "normalise",
@@ -352,7 +354,7 @@ def _cmd_run_full(args, mods) -> int:
     limit = getattr(args, "limit", 0) or 0
     stop = start + limit if limit else total_rows
     indices = list(range(start, min(stop, total_rows)))
-    workers = max(1, int(getattr(args, "workers", 4) or 1))
+    workers = max(1, min(MAX_WORKERS, int(getattr(args, "workers", 4) or 1)))
     # Pass 1: score every row, record margins (no challenger yet).
     # Order-preserving: executor.map yields in input order.
     ctx = {
@@ -451,21 +453,11 @@ def _cmd_run_full(args, mods) -> int:
 
 
 def _cmd_run_fallback(args, validate_mod, reason: str) -> int:
-    print(f"WARN: {reason}; using fallback path", file=sys.stderr)
-    _, raw_rows = _read_xlsx_fallback(args.input)
-    preds, invalid = [], 0
-    for pos, raw in enumerate(raw_rows, start=1):
-        label = LABEL_NAMES[(pos - 1) % len(LABEL_NAMES)]
-        rec = _coerce_record(
-            pos, _extract_invoice(raw, pos), label, 0.5, [[label, 1.0]], ["fallback"]
-        )
-        try:
-            preds.append(_as_prediction(validate_mod, rec))
-        except Exception:
-            invalid += 1
-    return _finalise(
-        preds, invalid, args.out, _xlsx_out_path(args.out, args.xlsx), validate_mod, "fallback"
-    )
+    """Fail closed instead of emitting fabricated labels after a pipeline failure."""
+    _ = args
+    _ = validate_mod
+    print(f"ERROR: classification pipeline unavailable: {reason}", file=sys.stderr)
+    return 2
 
 
 def cmd_run(args) -> int:
@@ -481,6 +473,11 @@ def cmd_run(args) -> int:
     try:
         return _cmd_run_full(args, mods)
     except Exception as exc:
+        from .scorer import ScorerError
+
+        if isinstance(exc, ScorerError):
+            print(f"ERROR: classification unavailable ({exc})", file=sys.stderr)
+            return 2
         return _cmd_run_fallback(args, mods["validate"], f"full pipeline failed ({exc})")
 
 
@@ -851,7 +848,8 @@ def cmd_audit(args) -> int:
     if mods.get("ingest") is None:
         print("ERROR: ingest module missing", file=sys.stderr)
         return 2
-    data = mods["ingest"].read_excel(args.input)
+    messy_mod = _load("messy")
+    data = _read_workbook_for_pipeline(args.input, mods["ingest"], messy_mod)
     records = []
     for pos, raw in enumerate(data.get("rows", []), start=1):
         voucher = raw.get(args.voucher_col, "")
@@ -1058,7 +1056,7 @@ def build_parser() -> argparse.ArgumentParser:
     intake_p = sub.add_parser("intake", help="Convert PDF/image/CSV/XLSX documents to rows XLSX")
     intake_p.add_argument("--input", required=True)
     intake_p.add_argument("--out", required=True)
-    intake_p.add_argument("--langs", default="hin,eng",
+    intake_p.add_argument("--langs", default="hin,eng,mar,guj",
                           help="OCR languages, comma separated (needs tesseract binary)")
     intake_p.set_defaults(func=cmd_intake)
     return parser

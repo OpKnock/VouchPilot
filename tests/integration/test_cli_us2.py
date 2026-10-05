@@ -98,3 +98,72 @@ def test_cli_run_uses_resilient_reader_for_messy_workbook(tmp_path):
     rows = [json.loads(line) for line in open(pred, encoding="utf-8") if line.strip()]
     assert len(rows) == 1
     assert rows[0]["invoice_number"] == "PI-101"
+
+    
+def test_cli_intake_uses_resilient_workbook_reader(tmp_path):
+    source = str(tmp_path / "messy-source.xlsx")
+    wb = Workbook()
+    cover = wb.active
+    cover.title = "Cover"
+    cover["A1"] = "FY 2026-27 export"
+    tx = wb.create_sheet("Transactions")
+    tx.append(["Invoice No", "Narration", "Total"])
+    tx.append(["PI-301", "Laptop purchase", 59000])
+    wb.save(source)
+    wb.close()
+
+    out = str(tmp_path / "intake.xlsx")
+    run = _run_cli("intake", "--input", source, "--out", out)
+    assert run.returncode == 0, run.stderr
+
+    workbook = load_workbook(out, read_only=True, data_only=True)
+    sheet = workbook.active
+    rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
+    workbook.close()
+    assert rows[0][:3] == ["Invoice No", "Narration", "Total"]
+    assert rows[1][:3] == ["PI-301", "Laptop purchase", 59000]
+    
+
+
+def test_cli_audit_uses_resilient_workbook_reader(tmp_path):
+    source = str(tmp_path / "audit-source.xlsx")
+    wb = Workbook()
+    cover = wb.active
+    cover.title = "Cover"
+    cover["A1"] = "VouchPilot export"
+    tx = wb.create_sheet("Transactions")
+    tx.append(["Invoice No", "voucher_type", "Narration"])
+    tx.append(["PI-401", "Purchase", "Steel purchase"])
+    wb.save(source)
+    wb.close()
+
+    pred = str(tmp_path / "pred.jsonl")
+    with open(pred, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "row_id": 1,
+            "invoice_number": "PI-401",
+            "voucher_type": "Purchase",
+            "confidence": 0.95,
+        }) + "\n")
+
+    report = str(tmp_path / "audit.json")
+    run = _run_cli(
+        "audit", "--input", source, "--voucher-col", "voucher_type",
+        "--pred", pred, "--report", report,
+    )
+    assert run.returncode == 0, run.stderr
+    result = json.loads(open(report, encoding="utf-8").read())
+    assert result["agreement"] == 1.0
+
+
+
+
+def test_cli_does_not_fabricate_labels_when_pipeline_is_unavailable(tmp_path, capsys):
+    from types import SimpleNamespace
+
+    from vouch_engine import __main__ as cli
+
+    args = SimpleNamespace(input=str(tmp_path / "input.xlsx"), out=str(tmp_path / "out.jsonl"))
+    assert cli._cmd_run_fallback(args, cli, "synthetic pipeline failure") == 2
+    assert "classification pipeline unavailable" in capsys.readouterr().err
+    assert not os.path.exists(args.out)
