@@ -38,6 +38,8 @@ def load(root: str | None = None) -> dict:
                     merged[key] = data[key]
     except (OSError, ValueError, TypeError):
         pass
+    if merged.get("scorer") not in _ALLOWED_SCORERS:
+        merged["scorer"] = DEFAULTS["scorer"]
     return _validate(merged)
 
 
