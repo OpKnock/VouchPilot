@@ -263,3 +263,16 @@ def test_predict_reports_model_server_unavailable(monkeypatch):
     )
     assert response.status_code == 503
     assert "local model server unavailable" in response.json()["detail"]
+
+
+def test_audit_endpoint_tolerates_malformed_confidence():
+    client = TestClient(create_app())
+    response = client.post(
+        "/audit",
+        json={
+            "records": [{"row_id": 1, "invoice_number": "PI-1", "voucher_type": "Purchase"}],
+            "predictions": [{"row_id": 1, "voucher_type": "Sales", "confidence": "not-a-number"}],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["disagreements"][0]["confidence"] == 0.0
