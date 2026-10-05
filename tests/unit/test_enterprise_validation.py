@@ -88,3 +88,46 @@ def test_validation_rejects_prediction_count_mismatch(tmp_path):
             predictions_path=predictions,
             min_support_per_class=0,
         )
+
+
+def test_validation_accepts_precomputed_predictions_without_running_a_model(tmp_path):
+    gold = tmp_path / "gold.csv"
+    _write_gold(gold)
+    predictions = tmp_path / "pred.jsonl"
+    prediction_rows = [
+        {
+            "row_id": 1,
+            "invoice_number": "1",
+            "voucher_type": "Purchase",
+            "confidence": 0.9,
+            "needs_review": False,
+            "top_k": [["Purchase", 0.9]],
+            "evidence": [],
+        },
+        {
+            "row_id": 2,
+            "invoice_number": "2",
+            "voucher_type": "Sales",
+            "confidence": 0.9,
+            "needs_review": False,
+            "top_k": [["Sales", 0.9]],
+            "evidence": [],
+        },
+    ]
+    predictions.write_text(
+        "\n".join(json.dumps(row) for row in prediction_rows) + "\n",
+        encoding="utf-8",
+    )
+    report = validate(
+        gold,
+        predictions_path=predictions,
+        dataset_type="production",
+        min_accuracy=1.0,
+        min_macro_f1=1.0,
+        max_review_rate=0.0,
+        max_high_confidence_error_rate=0.0,
+        min_support_per_class=0,
+    )
+    assert report["gate"]["pass"] is True
+    assert report["gate"]["enterprise_ready"] is False
+    assert report["metrics"]["unknown_ground_truth"] == []
