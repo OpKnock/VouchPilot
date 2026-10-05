@@ -156,3 +156,29 @@ def test_legacy_xls_intake_is_rejected_with_actionable_error(tmp_path):
         assert ".xlsx" in str(exc).lower()
         return
     raise AssertionError("legacy .xls should require conversion to .xlsx")
+
+    
+def test_image_pixel_limit_is_enforced(tmp_path, monkeypatch):
+    from vouch_engine import intake
+
+    monkeypatch.setattr(intake, "MAX_IMAGE_PIXELS", 100)
+    source = tmp_path / "large.png"
+    Image.new("RGB", (11, 11), "white").save(source)
+    with pytest.raises(IntakeError, match="pixel"):
+        intake.intake_to_xlsx(str(source), str(tmp_path / "out.xlsx"))
+
+
+def test_pdf_page_limit_is_enforced(tmp_path, monkeypatch):
+    from vouch_engine import intake
+
+    monkeypatch.setattr(intake, "MAX_PDF_PAGES", 1)
+    source = tmp_path / "many-pages.pdf"
+    doc = fitz.open()
+    doc.new_page()
+    doc.new_page()
+    doc.save(str(source))
+    doc.close()
+    with pytest.raises(IntakeError, match="pages"):
+        intake.intake_to_xlsx(str(source), str(tmp_path / "out.xlsx"))
+
+
