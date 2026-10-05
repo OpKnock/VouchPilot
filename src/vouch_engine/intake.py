@@ -271,20 +271,40 @@ def intake_to_xlsx(in_path: str, out_path: str,
         rows.append(_ensure_narration(parse_invoice_fields(ocr_text), ocr_text))
     elif kind == "csv":
         with open(in_path, newline="", encoding="utf-8-sig") as handle:
-            rows = [dict(r) for r in csv.DictReader(handle)]
-        rows = [r for r in rows if any(str(v).strip() for v in r.values())]
+            sample = handle.read(8192)
+            handle.seek(0)
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            except csv.Error:
+                dialect = csv.excel
+            grid = list(csv.reader(handle, dialect))
+
+        from .ingest import detect_header_row
+
+        header_idx = detect_header_row(grid, scan_limit=15) if grid else 0
+        if grid:
+            headers = []
+            seen: dict[str, int] = {}
+            for index, cell in enumerate(grid[header_idx]):
+                name = str(cell).strip() or f"col_{index}"
+                seen[name] = seen.get(name, 0) + 1
+                if seen[name] > 1:
+                    name = f"{name}_{seen[name]}"
+                headers.append(name)
+            for values in grid[header_idx + 1:]:
+                if not any(str(value).strip() for value in values):
+                    continue
+                rows.append({
+                    header: values[index] if index < len(values) else ""
+                    for index, header in enumerate(headers)
+                })
         if not rows:
             rows = [{"currency": "INR", "narration": ""}]
     elif kind == "xlsx":
-        import openpyxl
+        from .messy import read_messy_xlsx
 
-        wb = openpyxl.load_workbook(in_path, read_only=True, data_only=True)
-        grid = list(wb.active.values)
-        wb.close()
-        if grid and any(c is not None and str(c).strip() for c in grid[0]):
-            headers_in = [str(c).strip() if c is not None else "" for c in grid[0]]
-            rows = [{h: ("" if v is None else v) for h, v in zip(headers_in, r)} for r in grid[1:]]
-            rows = [r for r in rows if any(str(v).strip() for v in r.values())]
+        data = read_messy_xlsx(in_path, pick_best=True)
+        rows = list(data.get("rows", []))
         if not rows:
             rows = [{"currency": "INR", "narration": ""}]
     _write_rows(rows, out_path)
