@@ -182,3 +182,22 @@ def test_stub_determinism_and_tie_break():
     # Empty mask falls back to LABELS order.
     label2, _, _ = StubScorer().predict({}, [], {})
     assert label2 == LABELS[0]["name"]
+
+    
+def test_complete_raises_when_server_is_unavailable():
+    import urllib.error
+    from vouch_engine.scorer import ScorerUnavailableError
+
+    with patch.object(
+        scorer.urllib.request,
+        "urlopen",
+        side_effect=urllib.error.URLError("connection refused"),
+    ):
+        try:
+            LlamaServerScorer()._complete("prompt", ["A", "B"])
+        except ScorerUnavailableError as exc:
+            assert "local model server" in str(exc).lower()
+        else:
+            raise AssertionError("server failure must not return a fabricated distribution")
+
+
