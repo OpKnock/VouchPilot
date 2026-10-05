@@ -164,3 +164,86 @@ def test_predict_reader_failure_is_a_server_error(monkeypatch):
     )
     assert response.status_code == 500
     assert "pipeline failed" in response.json()["detail"]
+    
+def test_audit_endpoint_returns_disagreement_report():
+    client = TestClient(create_app())
+    response = client.post(
+        "/audit",
+        json={
+            "records": [
+                {"row_id": 1, "invoice_number": "PI-1", "voucher_type": "Purchase"},
+                {"row_id": 2, "invoice_number": "SI-1", "voucher_type": "Sales"},
+            ],
+            "predictions": [
+                {"row_id": 1, "voucher_type": "Purchase", "confidence": 0.9},
+                {"row_id": 2, "voucher_type": "Payment", "confidence": 0.7},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["n_rows"] == 2
+    assert body["agreement"] == 0.5
+    assert body["disagreements"][0]["row_id"] == 2
+
+
+def test_predict_caps_worker_count(monkeypatch):
+    from vouch_engine import api
+
+    seen = {}
+
+    class TinyExecutor:
+        def __init__(self, max_workers):
+            seen["max_workers"] = max_workers
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def map(self, fn, values):
+            return [fn(value) for value in values]
+
+    monkeypatch.setattr(api.concurrent.futures, "ThreadPoolExecutor", TinyExecutor)
+    api.classify_raw_rows([{"Invoice No": "PI-1", "Narration": "purchase"}],
+                          "keyword", "http://127.0.0.1:8080", 100_000)
+    assert seen["max_workers"] == 8
+
+
+def test_remote_llm_endpoint_is_rejected():
+    response = TestClient(create_app()).post(
+        "/predict?scorer=server&endpoint=http://169.254.169.254/latest/meta-data",
+        files={"file": ("transactions.csv", b"Invoice No,Narration\nPI-1,purchase\n", "text/csv")},
+    )
+    assert response.status_code == 422
+    assert "endpoint" in response.json()["detail"].lower()
+
+
+def test_predict_n_rows_counts_input_rows_even_when_one_prediction_is_invalid(monkeypatch):
+    from vouch_engine import api
+
+    real_validate = api.validate.validate_prediction
+    calls = {"n": 0}
+
+    def invalid_second(record):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise ValueError("synthetic invalid row")
+        return real_validate(record)
+
+    monkeypatch.setattr(api.validate, "validate_prediction", invalid_second)
+    response = TestClient(create_app()).post(
+        "/predict?scorer=keyword",
+        files={
+            "file": (
+                "transactions.csv",
+                b"Invoice No,Narration\nPI-1,purchase\nPI-2,sales\n",
+                "text/csv",
+            )
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["n_rows"] == 2
+    assert body["invalid"] == 1
+    assert len(body["predictions"]) == 1
+
+
