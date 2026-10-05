@@ -247,3 +247,19 @@ def test_predict_n_rows_counts_input_rows_even_when_one_prediction_is_invalid(mo
     assert len(body["predictions"]) == 1
 
 
+
+
+def test_predict_reports_model_server_unavailable(monkeypatch):
+    from vouch_engine import api
+    from vouch_engine.scorer import ScorerUnavailableError
+
+    def unavailable(*_args, **_kwargs):
+        raise ScorerUnavailableError("local model server unavailable at http://127.0.0.1:8080")
+
+    monkeypatch.setattr(api, "classify_raw_rows", unavailable)
+    response = TestClient(create_app()).post(
+        "/predict?scorer=server",
+        files={"file": ("transactions.csv", b"Invoice No,Narration\nPI-1,purchase\n", "text/csv")},
+    )
+    assert response.status_code == 503
+    assert "local model server unavailable" in response.json()["detail"]
