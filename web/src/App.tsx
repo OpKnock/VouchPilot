@@ -9,6 +9,7 @@ import {
 import { api, type LabelInfo, type Prediction, type RunRecord } from "./api";
 import { loadRuns, saveRuns, THEME_KEY } from "./storage";
 import { applyReviewToRuns } from "./review";
+import { csvEscape, predictionsToCsv } from "./export";
 
 type Area =
   | "Dashboard"
@@ -90,40 +91,6 @@ function downloadJsonl(filename: string, rows: unknown[]) {
     rows.map((row) => JSON.stringify(row)).join("\n") + "\n",
     "application/x-ndjson",
   );
-}
-
-function csvEscape(value: unknown): string {
-  const text = String(value ?? "");
-  return '"' + text.replace(/"/g, '""') + '"';
-}
-
-function exportablePredictions(rows: Prediction[], includeEvidence: boolean): Prediction[] {
-  if (includeEvidence) return rows;
-  return rows.map(({ evidence: _evidence, ...row }) => ({ ...row, evidence: [] }));
-}
-
-function predictionsToCsv(rows: Prediction[], includeEvidence = true): string {
-  const header = [
-    "row_id",
-    "invoice_number",
-    "voucher_type",
-    "confidence",
-    "needs_review",
-    ...(includeEvidence ? ["evidence"] : []),
-  ];
-  return [
-    header.join(","),
-    ...rows.map((row) =>
-      [
-        row.row_id,
-        csvEscape(row.invoice_number),
-        csvEscape(row.voucher_type),
-        row.confidence.toFixed(4),
-        row.needs_review,
-        ...(includeEvidence ? [csvEscape(row.evidence.join(" | "))] : []),
-      ].join(","),
-    ),
-  ].join("\n");
 }
 
 function useCountUp(target: number, duration = 650): number {
