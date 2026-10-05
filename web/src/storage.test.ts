@@ -2,7 +2,14 @@ import { strict as assert } from "node:assert";
 import test, { afterEach } from "node:test";
 
 import type { Prediction, RunRecord } from "./api.ts";
-import { RUNS_KEY, loadRuns, saveRuns } from "./storage.ts";
+import {
+  RUNS_KEY,
+  SETTINGS_KEY,
+  loadRuns,
+  loadSettings,
+  saveRuns,
+  saveSettings,
+} from "./storage.ts";
 
 const realWindow = globalThis.window;
 
@@ -82,4 +89,25 @@ test("loadRuns drops malformed persisted predictions instead of crashing the wor
   const runs = loadRuns();
   assert.equal(runs.length, 1);
   assert.deepEqual(runs[0].predictions, []);
+});
+
+
+test("hosted settings round-trip through browser storage", () => {
+  const stored: Record<string, string> = {};
+  globalThis.window = {
+    localStorage: {
+      getItem: (key: string) => stored[key] ?? null,
+      setItem: (key: string, value: string) => {
+        stored[key] = value;
+      },
+    },
+  } as unknown as Window & typeof globalThis;
+
+  saveSettings({ scorer: "vouchpilot", auto_approve_threshold: 92 });
+  const loaded = loadSettings({ fraud: false });
+
+  assert.equal(stored[SETTINGS_KEY] !== undefined, true);
+  assert.equal(loaded.scorer, "vouchpilot");
+  assert.equal(loaded.auto_approve_threshold, 92);
+  assert.equal(loaded.fraud, false);
 });
