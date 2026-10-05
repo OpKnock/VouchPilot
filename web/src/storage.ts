@@ -1,4 +1,4 @@
-import type { Prediction, RunRecord } from "./api";
+import { isPrediction, type Prediction, type RunRecord } from "./api";
 
 export const RUNS_KEY = "vouchpilot-runs";
 export const THEME_KEY = "vouchpilot-theme";
@@ -24,7 +24,7 @@ function normalizeRun(value: unknown, index: number): RunRecord | null {
     status: raw.status,
     completed: raw.completed,
     predictions: Array.isArray(raw.predictions)
-      ? (raw.predictions as Prediction[])
+      ? raw.predictions.filter(isPrediction)
       : [],
   };
 }
