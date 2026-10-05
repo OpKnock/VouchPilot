@@ -156,7 +156,7 @@ def _read_input(path: str, suffix: str) -> dict[str, Any]:
     converted = path + ".rows.xlsx"
     try:
         _intake.intake_to_xlsx(path, converted)
-    except (_intake.IntakeError, OSError, ValueError) as exc:
+    except (_intake.IntakeError, OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"intake failed: {exc}") from exc
     return _read_input(converted, ".xlsx")
 
