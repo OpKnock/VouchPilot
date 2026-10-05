@@ -43,7 +43,10 @@ _TESSERACT_HINT = (
     "(see specs/005-real-world-intake/spec.md)"
 )
 
-_DEFAULT_LANGS = ("hin", "eng")
+_DEFAULT_LANGS = ("hin", "eng", "mar", "guj")
+MAX_IMAGE_PIXELS = 25_000_000
+MAX_PDF_PAGES = 100
+MAX_PDF_PAGE_PIXELS = 25_000_000
 
 _XLSX_EXTS = frozenset({".xlsx", ".xlsm", ".xls"})
 _IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp"})
