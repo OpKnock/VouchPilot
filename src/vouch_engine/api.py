@@ -14,7 +14,8 @@ from pydantic import BaseModel
 from . import baseline, evaluate as eval_mod, evidence, ingest, normalise, perspective, validate
 from .labels import LABEL_NAMES
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
+DEFAULT_LLM_ENDPOINT = os.getenv("VOUCH_LLM_ENDPOINT", "http://127.0.0.1:8080")
 
 _ALLOWED_UPLOADS = {
     ".xlsx",
@@ -33,7 +34,7 @@ _ALLOWED_UPLOADS = {
 class RowsIn(BaseModel):
     rows: list[dict[str, Any]]
     scorer: str = "keyword"
-    endpoint: str = "http://127.0.0.1:8080"
+    endpoint: str = DEFAULT_LLM_ENDPOINT
     workers: int = 1
     challenge: bool = False
 
@@ -109,6 +110,17 @@ def _read_input(path: str, suffix: str) -> dict[str, Any]:
         return _read_input(converted, ".xlsx")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"intake failed: {exc}") from exc
+
+
+def _module_status() -> dict[str, str]:
+    statuses: dict[str, str] = {}
+    for name in ("ingest", "normalise", "perspective", "evidence", "baseline", "scorer", "validate", "gold", "evaluate", "agent", "messy", "intake"):
+        try:
+            __import__("vouch_engine." + name)
+            statuses[name] = "OK"
+        except Exception as exc:
+            statuses[name] = f"FAIL {exc}"
+    return statuses
 
 
 def classify_raw_rows(
@@ -330,31 +342,12 @@ def create_app() -> FastAPI:
 
     @app.get("/system")
     def system() -> dict:
-        import importlib as _il
         import urllib.request as _ur
 
-        modules = {}
-        for name in (
-            "ingest",
-            "normalise",
-            "perspective",
-            "evidence",
-            "baseline",
-            "scorer",
-            "validate",
-            "gold",
-            "evaluate",
-            "agent",
-        ):
-            try:
-                _il.import_module("vouch_engine." + name)
-                modules[name] = "OK"
-            except Exception as exc:
-                modules[name] = f"FAIL {exc}"
-
-        server: dict[str, object] = {"url": "http://127.0.0.1:8080", "up": False}
+        modules = _module_status()
+        server: dict[str, object] = {"url": DEFAULT_LLM_ENDPOINT, "up": False}
         try:
-            _ur.urlopen("http://127.0.0.1:8080/health", timeout=4)
+            _ur.urlopen(f"{DEFAULT_LLM_ENDPOINT.rstrip("/")}/health", timeout=4)
             server["up"] = True
         except Exception:
             pass
