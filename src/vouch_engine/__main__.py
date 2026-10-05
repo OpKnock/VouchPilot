@@ -34,6 +34,8 @@ import urllib.request
 from .labels import LABEL_NAMES
 from .schemas import Prediction
 
+MAX_WORKERS = 8
+
 UPSTREAM_MODULES = (
     "ingest",
     "normalise",
@@ -352,7 +354,7 @@ def _cmd_run_full(args, mods) -> int:
     limit = getattr(args, "limit", 0) or 0
     stop = start + limit if limit else total_rows
     indices = list(range(start, min(stop, total_rows)))
-    workers = max(1, int(getattr(args, "workers", 4) or 1))
+    workers = max(1, min(MAX_WORKERS, int(getattr(args, "workers", 4) or 1)))
     # Pass 1: score every row, record margins (no challenger yet).
     # Order-preserving: executor.map yields in input order.
     ctx = {
@@ -481,6 +483,11 @@ def cmd_run(args) -> int:
     try:
         return _cmd_run_full(args, mods)
     except Exception as exc:
+        from .scorer import ScorerError
+
+        if isinstance(exc, ScorerError):
+            print(f"ERROR: classification unavailable ({exc})", file=sys.stderr)
+            return 2
         return _cmd_run_fallback(args, mods["validate"], f"full pipeline failed ({exc})")
 
 
