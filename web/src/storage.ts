@@ -2,6 +2,39 @@ import { isPrediction, type Prediction, type RunRecord } from "./api.ts";
 
 export const RUNS_KEY = "vouchpilot-runs";
 export const THEME_KEY = "vouchpilot-theme";
+export const SETTINGS_KEY = "vouchpilot-settings";
+
+export const DEFAULT_SETTINGS: Record<string, unknown> = {
+  scorer: "keyword",
+  endpoint: "http://127.0.0.1:8080",
+  workers: 1,
+  challenger: true,
+  fraud: true,
+  auto_approve_threshold: 85,
+  export_format: "jsonl",
+  include_evidence: true,
+  theme: "light",
+};
+
+export function loadSettings(fallback: Record<string, unknown> = {}): Record<string, unknown> {
+  const base = { ...DEFAULT_SETTINGS, ...fallback };
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return base;
+    return { ...base, ...(parsed as Record<string, unknown>) };
+  } catch {
+    return base;
+  }
+}
+
+export function saveSettings(settings: Record<string, unknown>): void {
+  try {
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Continue without persistence in private mode.
+  }
+}
+
 
 type StoredRun = Partial<RunRecord> & Pick<RunRecord, "file" | "rows" | "status" | "completed">;
 
