@@ -137,3 +137,30 @@ def test_predict_handles_decorative_rows_and_semicolon_csv():
     payload = response.json()
     assert payload["n_rows"] == 1
     assert payload["predictions"][0]["invoice_number"] == "PI-200"
+
+def test_settings_recovers_from_stale_persisted_scorer(tmp_path, monkeypatch):
+    (tmp_path / "settings.json").write_text(
+        '{"scorer": "removed-model", "workers": 2}',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    client = TestClient(create_app())
+    response = client.get("/settings")
+    assert response.status_code == 200
+    assert response.json()["scorer"] == "keyword"
+    bad = client.post("/settings", json={"scorer": "still-invalid"})
+    assert bad.status_code == 422
+
+def test_predict_reader_failure_is_a_server_error(monkeypatch):
+    from vouch_engine import api
+
+    def broken_input(_path, _suffix):
+        raise RuntimeError("reader exploded")
+
+    monkeypatch.setattr(api, "_read_input", broken_input)
+    response = TestClient(create_app()).post(
+        "/predict?scorer=keyword",
+        files={"file": ("transactions.xlsx", b"fake", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert response.status_code == 500
+    assert "pipeline failed" in response.json()["detail"]
