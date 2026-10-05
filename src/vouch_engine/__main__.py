@@ -536,8 +536,7 @@ def cmd_evaluate(args) -> int:
     report = compute_metrics(y_true, y_pred)
     calibrator_path = getattr(args, "calibrator", None)
     if calibrator_path:
-        from .calibrate import apply_conf, coverage_accuracy, ece
-        from .calibrate import load_calibrator
+        from .calibrate import apply_conf, coverage_accuracy, ece, load_calibrator
         from .challenger import PAIRS, pairwise_f1
 
         try:
