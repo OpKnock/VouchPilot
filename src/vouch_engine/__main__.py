@@ -290,8 +290,17 @@ def _challenge_state(ctx: dict, n: int) -> tuple:
         return (n, None, str(exc))
 
 
+def _read_workbook_for_pipeline(path: str, ingest_mod, messy_mod=None) -> dict:
+    """Use the resilient workbook reader when available, with ingest fallback."""
+    suffix = os.path.splitext(path)[1].lower()
+    if suffix in {".xlsx", ".xlsm"} and messy_mod is not None:
+        return messy_mod.read_messy_xlsx(path, pick_best=True)
+    return ingest_mod.read_excel(path)
+
+
 def _cmd_run_full(args, mods) -> int:
-    data = mods["ingest"].read_excel(args.input)
+    messy_mod = _load("messy")
+    data = _read_workbook_for_pipeline(args.input, mods["ingest"], messy_mod)
     headers, raw_rows = list(data.get("headers", [])), list(data.get("rows", []))
     mapping = mods["normalise"].map_columns(headers, raw_rows)
     canonical = mods["normalise"].to_canonical(raw_rows, mapping)
