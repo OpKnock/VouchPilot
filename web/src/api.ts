@@ -99,12 +99,19 @@ export const BASE =
     | string
     | undefined) ?? "";
 
+const RUNTIME_MODE =
+  ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_RUNTIME_MODE as
+    | string
+    | undefined) ?? "";
+
 const DESKTOP_DOWNLOAD_URL =
   ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_DESKTOP_DOWNLOAD_URL as
     | string
     | undefined) ?? "/desktop-package";
 
 export function isHostedMode(): boolean {
+  if (RUNTIME_MODE.toLowerCase() === "hosted") return true;
+  if (RUNTIME_MODE.toLowerCase() === "local") return false;
   if (!BASE || typeof window === "undefined") return false;
   try {
     return new URL(BASE, window.location.origin).origin !== window.location.origin;
