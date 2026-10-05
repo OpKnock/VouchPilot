@@ -190,6 +190,12 @@ export const api = {
     });
     return parsePredictionResponse(payload);
   },
-  launcherUrl: () => (DESKTOP_DOWNLOAD_URL.startsWith("/") ? BASE + DESKTOP_DOWNLOAD_URL : DESKTOP_DOWNLOAD_URL),
-  desktopDownloadUrl: () => (DESKTOP_DOWNLOAD_URL.startsWith("/") ? BASE + DESKTOP_DOWNLOAD_URL : DESKTOP_DOWNLOAD_URL),
+  launcherUrl: () =>
+    DESKTOP_DOWNLOAD_URL.startsWith("/")
+      ? BASE + DESKTOP_DOWNLOAD_URL
+      : DESKTOP_DOWNLOAD_URL,
+  desktopDownloadUrl: () =>
+    DESKTOP_DOWNLOAD_URL.startsWith("/")
+      ? BASE + DESKTOP_DOWNLOAD_URL
+      : DESKTOP_DOWNLOAD_URL,
 };
