@@ -152,8 +152,11 @@ def ocr_image(image: Image.Image, langs: tuple = ("hin", "eng"), psm: int = 6) -
         raise IntakeError(_TESSERACT_HINT)
     import pytesseract
 
+    _enforce_image_limit(image)
     if image.width < 800:
-        image = image.resize((image.width * 2, image.height * 2), Image.LANCZOS)
+        scaled_pixels = (image.width * 2) * (image.height * 2)
+        if scaled_pixels <= MAX_IMAGE_PIXELS:
+            image = image.resize((image.width * 2, image.height * 2), Image.LANCZOS)
     _enforce_image_limit(image)
     return pytesseract.image_to_string(image, lang="+".join(langs), config=f"--oem 1 --psm {psm}")
 
@@ -264,8 +267,8 @@ def intake_to_xlsx(in_path: str, out_path: str,
             rows.append({"currency": "INR", "narration": ""})
     elif kind == "image":
         with Image.open(in_path) as img:
-            img.load()
             _enforce_image_limit(img)
+            img.load()
             ocr_text = ocr_image(img, langs)
         ocr_used = True
         rows.append(_ensure_narration(parse_invoice_fields(ocr_text), ocr_text))
