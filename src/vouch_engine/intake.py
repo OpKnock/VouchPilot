@@ -45,7 +45,7 @@ _TESSERACT_HINT = (
 
 _DEFAULT_LANGS = ("hin", "eng")
 
-_XLSX_EXTS = frozenset({".xlsx", ".xlsm"})
+_XLSX_EXTS = frozenset({".xlsx", ".xlsm", ".xls"})
 _IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp"})
 
 _INVOICE_RE = re.compile(
@@ -189,6 +189,11 @@ def intake_to_xlsx(in_path: str, out_path: str,
     images yield a single OCR row; xlsx/csv inputs are normalised through.
     """
     kind = detect_type(in_path)
+    if Path(in_path).suffix.lower() == ".xls":
+        raise IntakeError(
+            "legacy .xls is recognized as Excel input but cannot be parsed by openpyxl; "
+            "save it as .xlsx before intake"
+        )
     langs_str = "+".join(langs)
     rows: list[dict] = []
     pages = 1
