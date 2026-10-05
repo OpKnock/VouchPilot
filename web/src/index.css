@@ -5,7 +5,7 @@
   --surface-2: #f1f3f5;
   --ink: #101828;
   --muted: #667085;
-  --subtle: #98a2b3;
+  --subtle: #667085;
   --line: #e4e7ec;
   --line-strong: #d0d5dd;
   --green: #0b8f63;
@@ -28,7 +28,7 @@ html[data-theme="dark"] {
   --surface-2: #161e28;
   --ink: #f2f4f7;
   --muted: #aab4c0;
-  --subtle: #6f7b88;
+  --subtle: #aab4c0;
   --line: #242d38;
   --line-strong: #36404d;
   --green: #29c68f;
@@ -197,7 +197,7 @@ a { color: inherit; }
 
 .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .search-control { width: min(320px, 100%); min-height: 39px; display: flex; align-items: center; gap: 7px; padding: 0 11px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; color: var(--subtle); }
-.search-control input { width: 100%; background: none; border: 0; outline: 0; color: var(--ink); font-size: 12px; }
+.search-control input { width: 100%; background: none; border: 0; color: var(--ink); font-size: 12px; }
 .filter-chip { min-height: 39px; padding: 0 12px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 11px; font-weight: 650; }
 .filter-chip.active { color: var(--green-strong); background: var(--green-soft); border-color: rgb(11 143 99 / 24%); }
 .prediction-grid { grid-template-columns: minmax(220px, 1.25fr) minmax(130px, .8fr) minmax(130px, .8fr) minmax(220px, 1.1fr) 90px; }
