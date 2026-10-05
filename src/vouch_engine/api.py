@@ -585,6 +585,16 @@ def create_app() -> FastAPI:
         dist = _web_root()
         if (dist / "index.html").is_file():
             app.mount("/", StaticFiles(directory=dist, html=True), name="web")
+
+        @app.middleware('http')
+        async def _cache_static(request, call_next):
+            resp = await call_next(request)
+            if request.url.path.startswith(
+                ('/assets/', '/logo.png', '/favicon.png', '/robots.txt',
+                 '/sitemap.xml', '/llms.txt')
+            ):
+                resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            return resp
     except Exception:
         pass
 

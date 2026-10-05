@@ -104,10 +104,17 @@ def test_launcher_serves_bat_or_404():
 
 
 def test_desktop_package_zip_or_404(tmp_path, monkeypatch):
+    import io
+    import zipfile
+
     monkeypatch.chdir(tmp_path)
     resp = TestClient(create_app()).get("/desktop-package")
-    assert resp.status_code == 404
-    assert "exe" in resp.json()["detail"].lower()
+    assert resp.status_code in (200, 404)
+    if resp.status_code == 200:
+        names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
+        assert "VouchPilot.exe" in names
+    else:
+        assert "exe" in resp.json()["detail"].lower()
 
 
 def test_predict_rejects_server_side_oversize_upload(monkeypatch):

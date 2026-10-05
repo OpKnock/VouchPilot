@@ -40,3 +40,8 @@ VouchPilot.exe
 .claude/
 tessdata/
 
+demo/video/
+demo/*.mp4
+demo/*.mp3
+demo/*.webm
+

@@ -258,7 +258,7 @@ function Classify({ settings, initial, onDone }: { settings: Settings; initial: 
       setRows(res.predictions);
       const need = res.predictions.filter((p) => p.needs_review).length;
       onDone({
-        file: file.name, rows: res.n_rows, accuracy: null,
+        id: `${Date.now()}-${file.name}`, file: file.name, rows: res.n_rows, accuracy: null,
         status: need ? "Review needed" : "Completed",
         completed: new Date().toLocaleString(), predictions: res.predictions,
       }, res.predictions);
@@ -521,20 +521,36 @@ function Settings({ theme, onThemeToggle, onSaved }: { theme: Theme; onThemeTogg
 }
 
 function Footer({ navigate }: { navigate: (area: Area) => void }) {
-  const year = new Date().getFullYear();
-  return <footer className="site-footer">
-    <nav aria-label="Footer">
-      <button onClick={() => navigate("Dashboard")}>Product</button>
-      <button onClick={() => navigate("Classify")}>Classify</button>
-      <button onClick={() => navigate("Review")}>Review</button>
-      <button onClick={() => navigate("Privacy")}>Privacy policy</button>
-      <button onClick={() => navigate("Terms")}>Terms</button>
-      <button onClick={() => navigate("Cookies")}>Cookies</button>
-      <button onClick={() => navigate("Refunds")}>Refunds</button>
-      <a href="mailto:wagdemehul@gmail.com">Contact: wagdemehul@gmail.com</a>
-    </nav>
-    <small>© {year} CodeCarto. VouchPilot runs fully offline on your machine. No accounts, no tracking.</small>
-  </footer>;
+  return (
+    <footer className="footer">
+      <div className="footer-grid">
+        <div className="footer-brand">
+          <Logo />
+          <p>Offline voucher intelligence for Indian accounting workflows.</p>
+          <span>© {new Date().getFullYear()} CodeCarto · VouchPilot</span>
+        </div>
+        <div className="footer-col">
+          <p className="section-label">PRODUCT</p>
+          <button onClick={() => navigate("Dashboard")}>Dashboard</button>
+          <button onClick={() => navigate("Classify")}>Classify</button>
+          <button onClick={() => navigate("Review")}>Review</button>
+          <button onClick={() => navigate("System")}>System</button>
+        </div>
+        <div className="footer-col">
+          <p className="section-label">LEGAL</p>
+          <button onClick={() => navigate("Privacy")}>Privacy policy</button>
+          <button onClick={() => navigate("Terms")}>Terms</button>
+          <button onClick={() => navigate("Cookies")}>Cookies</button>
+          <button onClick={() => navigate("Refunds")}>Refunds</button>
+        </div>
+        <div className="footer-col">
+          <p className="section-label">CONTACT</p>
+          <a href="mailto:wagdemehul@gmail.com">wagdemehul@gmail.com</a>
+          <small>Support and privacy queries, answered by a human.</small>
+        </div>
+      </div>
+    </footer>
+  );
 }
 
 function Legal({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
