@@ -858,7 +858,8 @@ def cmd_audit(args) -> int:
     if mods.get("ingest") is None:
         print("ERROR: ingest module missing", file=sys.stderr)
         return 2
-    data = mods["ingest"].read_excel(args.input)
+    messy_mod = _load("messy")
+    data = _read_workbook_for_pipeline(args.input, mods["ingest"], messy_mod)
     records = []
     for pos, raw in enumerate(data.get("rows", []), start=1):
         voucher = raw.get(args.voucher_col, "")
