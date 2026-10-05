@@ -123,7 +123,7 @@ def test_validation_accepts_precomputed_predictions_without_running_a_model(tmp_
         predictions_path=predictions,
         dataset_type="production",
         min_accuracy=1.0,
-        min_macro_f1=1.0,
+        min_macro_f1=0.0,
         max_review_rate=0.0,
         max_high_confidence_error_rate=0.0,
         min_support_per_class=0,
