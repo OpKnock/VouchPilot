@@ -40,19 +40,23 @@ export function loadRuns(): RunRecord[] {
 }
 
 export function saveRuns(runs: RunRecord[]): void {
-  try {
-    window.localStorage.setItem(RUNS_KEY, JSON.stringify(runs.slice(0, 20)));
-  } catch {
-    // A full/private storage bucket must never break the workspace.
+  const candidates = Array.from(new Set([20, 12, 8, 4, 1].filter((limit) => runs.length >= limit)));
+  for (const limit of candidates) {
     try {
+      window.localStorage.setItem(RUNS_KEY, JSON.stringify(runs.slice(0, limit)));
+      return;
+    } catch {
+      // Retry with a smaller complete set before dropping prediction data.
+    }
+  }
+
+  if (runs.length) {
+    try {
+      const latest = runs[0];
+      const { predictions: _predictions, ...metadata } = latest;
       window.localStorage.setItem(
         RUNS_KEY,
-        JSON.stringify(
-          runs.slice(0, 8).map(({ predictions: _predictions, ...run }) => ({
-            ...run,
-            predictions: [],
-          })),
-        ),
+        JSON.stringify([{ ...metadata, predictions: [] }]),
       );
     } catch {
       // In-memory state remains authoritative for this session.
