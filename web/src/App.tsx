@@ -6,8 +6,8 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { api, type LabelInfo, type Prediction, type RunRecord } from "./api";
-import { loadRuns, saveRuns, THEME_KEY } from "./storage";
+import { api, isHostedMode, type LabelInfo, type Prediction, type RunRecord } from "./api";
+import { loadRuns, loadSettings, saveRuns, saveSettings, THEME_KEY } from "./storage";
 import { applyReviewToRuns } from "./review";
 import { exportablePredictions, predictionsToCsv } from "./export";
 
@@ -378,7 +378,7 @@ function Welcome({
         </nav>
         <div className="marketing-actions">
           <ThemeToggle theme={theme} onToggle={onThemeToggle} />
-          <a className="btn btn-secondary" href="/desktop-package" download>
+          <a className="btn btn-secondary" href={api.desktopDownloadUrl()} download>
             Desktop
           </a>
           <PrimaryButton onClick={onEnter}>
@@ -421,7 +421,7 @@ function Welcome({
             <div className="hero-product-top">
               <div className="window-lights"><i /><i /><i /></div>
               <span>{last ? `Latest run · ${last.file}` : "Ready for your workbook"}</span>
-              <span className="runtime-badge"><StatusDot /> Local</span>
+              <span className="runtime-badge"><StatusDot /> {isHostedMode() ? "Hosted" : "Local"}</span>
             </div>
             <div className="hero-product-body">
               <div className="hero-product-title">
@@ -1198,7 +1198,7 @@ function SettingsPage({
     setSaved(false);
     setError("");
     try {
-      const next = await api.saveSettings({
+      const patch = {
         scorer,
         auto_approve_threshold: threshold,
         challenger,
@@ -1206,7 +1206,11 @@ function SettingsPage({
         workers,
         export_format: format,
         include_evidence: evidence,
-      });
+      };
+      const next = isHostedMode()
+        ? { ...settings, ...patch }
+        : await api.saveSettings(patch);
+      if (isHostedMode()) saveSettings(next);
       onSaved(next);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 1800);
@@ -1251,7 +1255,7 @@ function SettingsPage({
 
         <section className="panel settings-panel">
           <div className="panel-head"><div><span className="section-kicker">PRIVACY & OUTPUT</span><h2>Local controls</h2></div><Icon name="shield" /></div>
-          <div className="local-note"><Icon name="lock" size={17} /><div><strong>Local by design</strong><span>Browser, API and model runtime all stay on the machine.</span></div></div>
+          <div className="local-note"><Icon name="lock" size={17} /><div><strong>{isHostedMode() ? "Hosted, browser-private preferences" : "Local by design"}</strong><span>{isHostedMode() ? "Predictions use the configured API; workspace preferences and recent runs stay in this browser." : "Browser, API and model runtime all stay on the machine."}</span></div></div>
           <div className="setting-row"><div><strong>Fraud / injection scanner</strong><span>Applied by the VouchPilot+ scorer to narration and bill signals.</span></div><Toggle enabled={fraud} onChange={() => setFraud((value) => !value)} label="Fraud and injection scanner" /></div>
           <div className="setting-row"><div><strong>Primary export format</strong><span>Controls the one-click final export in Review.</span></div><div className="segmented">{["jsonl", "csv"].map((value) => <button key={value} className={format === value ? "selected" : ""} onClick={() => setFormat(value)}>{value.toUpperCase()}</button>)}</div></div>
           <div className="setting-row"><div><strong>Include evidence</strong><span>Keep evidence tags and decision markers in exports.</span></div><Toggle enabled={evidence} onChange={() => setEvidence((value) => !value)} label="Include evidence" /></div>
@@ -1312,7 +1316,7 @@ function App() {
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>(() => loadRuns());
   const [labels, setLabels] = useState<LabelInfo[]>([]);
-  const [settings, setSettings] = useState<Settings>({});
+  const [settings, setSettings] = useState<Settings>(() => loadSettings());
   const [navOpen, setNavOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -1333,7 +1337,12 @@ function App() {
 
   useEffect(() => {
     void api.labels().then((response) => setLabels(response.labels)).catch(() => undefined);
-    void api.settings().then((response) => setSettings(response)).catch(() => undefined);
+    void api.settings()
+      .then((response) => {
+        const next = isHostedMode() ? loadSettings(response) : response;
+        setSettings(next);
+      })
+      .catch(() => undefined);
   }, []);
 
   function navigate(next: Area) {
@@ -1384,7 +1393,7 @@ function App() {
       <aside className={`sidebar ${navOpen ? "open" : ""}`}>
         <div className="sidebar-top">
           <Logo />
-          <div className="workspace-label"><span>LOCAL WORKSPACE</span><strong>VouchPilot</strong></div>
+          <div className="workspace-label"><span>{isHostedMode() ? "HOSTED WORKSPACE" : "LOCAL WORKSPACE"}</span><strong>VouchPilot</strong></div>
           <nav aria-label="Primary">
             {NAV.map((item) => (
               <button key={item.label} className={area === item.label ? "active" : ""} onClick={() => navigate(item.label)}>
@@ -1396,7 +1405,7 @@ function App() {
           </nav>
         </div>
         <div className="sidebar-bottom">
-          <div className="local-status"><StatusDot /><div><strong>Local runtime</strong><span>{scorerName(settings.scorer)} ready</span></div></div>
+          <div className="local-status"><StatusDot /><div><strong>{isHostedMode() ? "Hosted runtime" : "Local runtime"}</strong><span>{scorerName(settings.scorer)} ready</span></div></div>
           <div className="sidebar-theme"><span>Theme</span><ThemeToggle theme={theme} onToggle={() => setTheme((value) => value === "light" ? "dark" : "light")} /></div>
         </div>
       </aside>
