@@ -45,7 +45,7 @@ _TESSERACT_HINT = (
 
 _DEFAULT_LANGS = ("hin", "eng")
 
-_XLSX_EXTS = frozenset({".xlsx", ".xlsm", ".xls"})
+_XLSX_EXTS = frozenset({".xlsx", ".xlsm"})
 _IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp"})
 
 _INVOICE_RE = re.compile(
