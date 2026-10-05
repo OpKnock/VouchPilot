@@ -9,6 +9,14 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1     PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       tesseract-ocr \
+       tesseract-ocr-eng \
+       tesseract-ocr-hin \
+       tesseract-ocr-mar \
+       tesseract-ocr-guj \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
 COPY src/ ./src/
