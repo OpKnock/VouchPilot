@@ -141,3 +141,14 @@ def test_scanned_pdf_ocr_or_loud_error(tmp_path: Path) -> None:
     else:
         with pytest.raises(IntakeError, match="winget"):
             intake_to_xlsx(str(pdf), str(out))
+
+
+def test_legacy_xls_is_rejected_with_actionable_error():
+    from vouch_engine.intake import IntakeError, detect_type
+
+    try:
+        detect_type("legacy.xls")
+    except IntakeError as exc:
+        assert "unsupported file type" in str(exc).lower()
+        return
+    raise AssertionError("legacy .xls should require conversion to .xlsx")
