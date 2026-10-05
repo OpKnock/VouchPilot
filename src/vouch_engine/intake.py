@@ -19,6 +19,9 @@ from PIL import Image
 __all__ = [
     "IntakeError",
     "TESSDATA_DIR",
+    "MAX_IMAGE_PIXELS",
+    "MAX_PDF_PAGES",
+    "MAX_PDF_PAGE_PIXELS",
     "detect_type",
     "intake_to_xlsx",
     "ocr_image",
@@ -241,6 +244,7 @@ def intake_to_xlsx(in_path: str, out_path: str,
     pages = 1
     ocr_used = False
     if kind == "pdf":
+        _enforce_pdf_page_limit(in_path)
         import fitz
 
         doc = fitz.open(in_path)
@@ -261,6 +265,7 @@ def intake_to_xlsx(in_path: str, out_path: str,
     elif kind == "image":
         with Image.open(in_path) as img:
             img.load()
+            _enforce_image_limit(img)
             ocr_text = ocr_image(img, langs)
         ocr_used = True
         rows.append(_ensure_narration(parse_invoice_fields(ocr_text), ocr_text))
