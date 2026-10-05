@@ -143,12 +143,16 @@ def test_scanned_pdf_ocr_or_loud_error(tmp_path: Path) -> None:
             intake_to_xlsx(str(pdf), str(out))
 
 
-def test_legacy_xls_is_rejected_with_actionable_error():
-    from vouch_engine.intake import IntakeError, detect_type
+def test_legacy_xls_intake_is_rejected_with_actionable_error(tmp_path):
+    from vouch_engine.intake import IntakeError, intake_to_xlsx
+
+    source = tmp_path / "legacy.xls"
+    source.write_bytes(b"not-a-real-xls")
 
     try:
-        detect_type("legacy.xls")
+        intake_to_xlsx(str(source), str(tmp_path / "out.xlsx"))
     except IntakeError as exc:
-        assert "unsupported file type" in str(exc).lower()
+        assert "legacy .xls" in str(exc).lower()
+        assert ".xlsx" in str(exc).lower()
         return
     raise AssertionError("legacy .xls should require conversion to .xlsx")
