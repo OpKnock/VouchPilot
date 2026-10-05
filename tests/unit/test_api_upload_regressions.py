@@ -47,3 +47,36 @@ def test_predict_uses_best_sheet_for_messy_workbook():
     payload = response.json()
     assert payload["n_rows"] == 1
     assert payload["predictions"][0]["invoice_number"] == "PI-002"
+
+
+def test_vouchpilot_fraud_setting_is_forwarded(monkeypatch):
+    from vouch_engine import api
+
+    seen = {}
+
+    class FakeScorer:
+        def predict(self, row, tags, mask, exemplars=None):
+            return "Purchase", 0.91, [["Purchase", 0.91], ["Sales", 0.09]]
+
+    def fake_make_scorer(name, endpoint, fraud=True):
+        seen["name"] = name
+        seen["endpoint"] = endpoint
+        seen["fraud"] = fraud
+        return FakeScorer()
+
+    monkeypatch.setattr(api, "_make_scorer", fake_make_scorer)
+    predictions, invalid = api.classify_raw_rows(
+        [{"Invoice No": "PI-003", "Narration": "Steel rods"}],
+        "vouchpilot",
+        "http://127.0.0.1:8080",
+        1,
+        fraud=False,
+    )
+
+    assert invalid == 0
+    assert len(predictions) == 1
+    assert seen == {
+        "name": "vouchpilot",
+        "endpoint": "http://127.0.0.1:8080",
+        "fraud": False,
+    }
