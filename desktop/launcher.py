@@ -25,6 +25,15 @@ def healthy(url, timeout=3):
         return False
 
 
+def wait_for_healthy(url, attempts=30, delay=2):
+    for attempt in range(max(1, attempts)):
+        if healthy(url):
+            return True
+        if attempt + 1 < attempts:
+            time.sleep(delay)
+    return False
+
+
 def _python():
     import shutil
 
@@ -52,20 +61,27 @@ def main():
              "--port", "8080", "-c", "4096", "--n-gpu-layers", "99",
              "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--log-disable"],
             cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        for _ in range(60):
-            time.sleep(5)
-            if healthy(API.replace("8000", "8080")):
-                break
+        if not wait_for_healthy("http://127.0.0.1:8080/health", attempts=60, delay=5):
+            print("ERROR: llama server did not become healthy; continuing without model scorer.",
+                  file=sys.stderr)
     env = dict(os.environ)
     api = subprocess.Popen([_python(), "-m", "uvicorn", "vouch_engine.api:create_app",
                             "--factory", "--host", "127.0.0.1", "--port", "8000"],
                            cwd=ROOT, env={**env, "PYTHONPATH": os.path.join(ROOT, "src")},
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     procs.append(api)
-    for _ in range(30):
-        time.sleep(2)
-        if healthy(API):
-            break
+    if not wait_for_healthy(API, attempts=30, delay=2):
+        print(
+            "ERROR: VouchPilot API did not become healthy at http://127.0.0.1:8000/health. "
+            "Check Python dependencies and backend logs.",
+            file=sys.stderr,
+        )
+        for p in procs:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        return 1
     print("VouchPilot running at http://127.0.0.1:8000/ - open it in your browser.")
     print("Close this window to stop.")
     if "--open-browser" in sys.argv[1:]:
@@ -85,4 +101,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
