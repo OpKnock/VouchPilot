@@ -7,8 +7,8 @@ import csv
 import os
 import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel, Field
