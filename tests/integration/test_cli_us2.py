@@ -123,3 +123,34 @@ def test_cli_intake_uses_resilient_workbook_reader(tmp_path):
     assert rows[0][:3] == ["Invoice No", "Narration", "Total"]
     assert rows[1][:3] == ["PI-301", "Laptop purchase", 59000]
     
+
+
+def test_cli_audit_uses_resilient_workbook_reader(tmp_path):
+    source = str(tmp_path / "audit-source.xlsx")
+    wb = Workbook()
+    cover = wb.active
+    cover.title = "Cover"
+    cover["A1"] = "VouchPilot export"
+    tx = wb.create_sheet("Transactions")
+    tx.append(["Invoice No", "voucher_type", "Narration"])
+    tx.append(["PI-401", "Purchase", "Steel purchase"])
+    wb.save(source)
+    wb.close()
+
+    pred = str(tmp_path / "pred.jsonl")
+    with open(pred, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "row_id": 1,
+            "invoice_number": "PI-401",
+            "voucher_type": "Purchase",
+            "confidence": 0.95,
+        }) + "\n")
+
+    report = str(tmp_path / "audit.json")
+    run = _run_cli(
+        "audit", "--input", source, "--voucher-col", "voucher_type",
+        "--pred", pred, "--report", report,
+    )
+    assert run.returncode == 0, run.stderr
+    result = json.loads(open(report, encoding="utf-8").read())
+    assert result["agreement"] == 1.0
