@@ -19,6 +19,18 @@ from .labels import GROUPS, LABELS, PRECEDENCE_V1
 
 GROUP_CODES: list[str] = list(GROUPS.keys())
 
+
+class ScorerError(RuntimeError):
+    """Base error for failures that make a model prediction untrustworthy."""
+
+
+class ScorerUnavailableError(ScorerError):
+    """The local model server could not be reached or did not answer."""
+
+
+class ScorerResponseError(ScorerError):
+    """The model server responded, but not with a usable completion payload."""
+
 # Qwen3.5 is a thinking model: the chat template opens a <think> block that
 # must be closed for direct single-token answers (verified against
 # llama-server /apply-template + /completion probes).
@@ -240,8 +252,9 @@ class LlamaServerScorer:
                 last_err = f"{type(exc).__name__}: {exc}"
                 time.sleep(1.0 * attempt)
         if not data:
-            print(f"WARN: /completion failed ({last_err}); uniform fallback", file=sys.stderr)
-            return {c: 1.0 / len(valid_codes) for c in valid_codes} if valid_codes else {}
+            raise ScorerUnavailableError(
+                f"local model server unavailable at {self.endpoint}: {last_err or 'no response'}"
+            )
         try:
             first = data["completion_probabilities"][0]
             probs = first.get("probs") or first.get("top_logprobs") or []
@@ -269,10 +282,9 @@ class LlamaServerScorer:
                 raw[cands[0]] += p
                 matched_any = True
         if not matched_any:
-            print("WARN: /completion returned no usable token probs; uniform fallback", file=sys.stderr)
-            if valid_codes:
-                return {c: 1.0 / len(valid_codes) for c in valid_codes}
-            return {}
+            raise ScorerResponseError(
+                f"local model server at {self.endpoint} returned no usable token probabilities"
+            )
         return _normalise(raw, valid_codes)
 
     def predict(
@@ -347,6 +359,9 @@ class StubScorer:
 
 __all__ = [
     "GROUP_CODES",
+    "ScorerError",
+    "ScorerUnavailableError",
+    "ScorerResponseError",
     "LlamaServerScorer",
     "StubScorer",
     "build_group_prompt",
