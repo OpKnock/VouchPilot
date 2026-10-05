@@ -37,6 +37,7 @@ class RowsIn(BaseModel):
     endpoint: str = DEFAULT_LLM_ENDPOINT
     workers: int = 1
     challenge: bool = False
+    fraud: bool = True
 
 
 class EvalIn(BaseModel):
@@ -44,7 +45,7 @@ class EvalIn(BaseModel):
     pred: list[dict[str, Any]]
 
 
-def _make_scorer(name: str, endpoint: str):
+def _make_scorer(name: str, endpoint: str, fraud: bool = True):
     if name == "server":
         from .scorer import LlamaServerScorer
 
@@ -56,7 +57,12 @@ def _make_scorer(name: str, endpoint: str):
     if name == "vouchpilot":
         from extensions.vouchpilot_scorer import VouchPilotScorer
 
-        return VouchPilotScorer(base="keyword", endpoint=endpoint)
+        return VouchPilotScorer(
+            base="keyword",
+            endpoint=endpoint,
+            fraud=fraud,
+            firewall=fraud,
+        )
     if name != "keyword":
         raise HTTPException(status_code=422, detail="unknown scorer")
     from .__main__ import _KeywordAdapter
@@ -129,6 +135,7 @@ def classify_raw_rows(
     endpoint: str,
     workers: int,
     challenge: bool = False,
+    fraud: bool = True,
 ) -> tuple[list[dict], int]:
     import concurrent.futures
 
@@ -138,7 +145,7 @@ def classify_raw_rows(
     mapping = normalise.map_columns(headers, raw_rows[:5])
     canonical = normalise.to_canonical(raw_rows, mapping)
     perspective.resolve(canonical)
-    scorer_obj = _make_scorer(scorer_name, endpoint)
+    scorer_obj = _make_scorer(scorer_name, endpoint, fraud)
 
     challenger = None
     if challenge and hasattr(scorer_obj, "_complete"):
@@ -246,6 +253,7 @@ def create_app() -> FastAPI:
         endpoint: str = DEFAULT_LLM_ENDPOINT,
         workers: int = 1,
         challenge: bool = False,
+        fraud: bool = True,
     ) -> dict:
         raw = await file.read()
         if not raw:
@@ -265,6 +273,7 @@ def create_app() -> FastAPI:
                 endpoint,
                 workers,
                 challenge,
+                fraud,
             )
             return {"predictions": preds, "n_rows": len(preds), "invalid": invalid}
         except HTTPException:
@@ -293,6 +302,7 @@ def create_app() -> FastAPI:
                 body.endpoint,
                 body.workers,
                 body.challenge,
+                body.fraud,
             )
         except HTTPException:
             raise
