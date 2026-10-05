@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import csv
 import os
 import tempfile
@@ -232,8 +233,6 @@ def classify_raw_rows(
     challenge: bool = False,
     fraud: bool = True,
 ) -> tuple[list[dict], int]:
-    import concurrent.futures
-
     if scorer_name not in {"stub", "keyword", "server", "vouchpilot"}:
         raise HTTPException(status_code=422, detail="unknown scorer")
     headers = sorted({k for row in raw_rows for k in row.keys()})
