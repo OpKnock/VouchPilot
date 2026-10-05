@@ -96,14 +96,19 @@ function csvEscape(value: unknown): string {
   return '"' + text.replace(/"/g, '""') + '"';
 }
 
-function predictionsToCsv(rows: Prediction[]): string {
+function exportablePredictions(rows: Prediction[], includeEvidence: boolean): Prediction[] {
+  if (includeEvidence) return rows;
+  return rows.map(({ evidence: _evidence, ...row }) => ({ ...row, evidence: [] }));
+}
+
+function predictionsToCsv(rows: Prediction[], includeEvidence = true): string {
   const header = [
     "row_id",
     "invoice_number",
     "voucher_type",
     "confidence",
     "needs_review",
-    "evidence",
+    ...(includeEvidence ? ["evidence"] : []),
   ];
   return [
     header.join(","),
@@ -114,7 +119,7 @@ function predictionsToCsv(rows: Prediction[]): string {
         csvEscape(row.voucher_type),
         row.confidence.toFixed(4),
         row.needs_review,
-        csvEscape(row.evidence.join(" | ")),
+        ...(includeEvidence ? [csvEscape(row.evidence.join(" | "))] : []),
       ].join(","),
     ),
   ].join("\n");
@@ -553,10 +558,12 @@ function Dashboard({
   navigate,
   runs,
   predictions,
+  scorer,
 }: {
   navigate: (area: Area) => void;
   runs: RunRecord[];
   predictions: Prediction[];
+  scorer: string;
 }) {
   const reviewCount = predictions.filter((p) => p.needs_review).length;
   const total = predictions.length || runs.reduce((sum, run) => sum + run.rows, 0);
@@ -597,7 +604,7 @@ function Dashboard({
         <MetricCard label="Transactions" value={animatedTotal.toLocaleString()} detail={runs.length ? `${runs.length} saved runs` : "No runs yet"} tone={runs.length ? "good" : "neutral"} />
         <MetricCard label="Mean confidence" value={predictions.length ? `${animatedConfidence.toFixed(1)}%` : "—"} detail="Current batch" />
         <MetricCard label="Needs review" value={String(animatedReview)} detail="Human gate" tone={reviewCount ? "warn" : "good"} />
-        <MetricCard label="Runtime" value="Local" detail={scorerName("keyword")} tone="good" />
+        <MetricCard label="Runtime" value="Local" detail={scorerName(scorer)} tone="good" />
       </section>
 
       <section className="dashboard-grid">
@@ -699,6 +706,7 @@ function Classify({
   const input = useRef<HTMLInputElement>(null);
 
   const threshold = Number(settings.auto_approve_threshold ?? 85);
+  const includeEvidence = Boolean(settings.include_evidence ?? true);
   const allowedSize = 50 * 1024 * 1024;
 
   useEffect(() => setRows(initial), [initial]);
@@ -725,6 +733,7 @@ function Classify({
         scorer: String(settings.scorer ?? "keyword"),
         workers: String(settings.workers ?? 1),
         challenge: Boolean(settings.challenger ?? true) ? "true" : "false",
+        fraud: Boolean(settings.fraud ?? true) ? "true" : "false",
       });
       const normalized = classifyReviewFlags(result.predictions, threshold);
       setRows(normalized);
@@ -836,8 +845,8 @@ function Classify({
             <button className={`filter-chip ${filter === "review" ? "active" : ""}`} onClick={() => setFilter(filter === "all" ? "review" : "all")}>
               <Icon name="filter" size={15} /> {filter === "review" ? "Needs review" : "All rows"}
             </button>
-            <SecondaryButton onClick={() => downloadJsonl("predictions.jsonl", rows)} disabled={!rows.length}>JSONL</SecondaryButton>
-            <SecondaryButton onClick={() => downloadBlob("predictions.csv", predictionsToCsv(rows), "text/csv")} disabled={!rows.length}>CSV</SecondaryButton>
+            <SecondaryButton onClick={() => downloadJsonl("predictions.jsonl", exportablePredictions(rows, includeEvidence))} disabled={!rows.length}>JSONL</SecondaryButton>
+            <SecondaryButton onClick={() => downloadBlob("predictions.csv", predictionsToCsv(exportablePredictions(rows, includeEvidence), includeEvidence), "text/csv")} disabled={!rows.length}>CSV</SecondaryButton>
           </div>
         </div>
 
@@ -888,11 +897,15 @@ function Review({
   predictions,
   labels,
   threshold,
+  exportFormat,
+  includeEvidence,
   onExport,
 }: {
   predictions: Prediction[];
   labels: LabelInfo[];
   threshold: number;
+  exportFormat: string;
+  includeEvidence: boolean;
   onExport: (decisions: Decision[], final: Prediction[]) => void;
 }) {
   const queue = useMemo(
@@ -968,9 +981,14 @@ function Review({
     downloadJson("decisions.json", { decisions: Object.values(decisions) });
   }
 
-  function downloadFinalCsv() {
-    if (done < queue.length) return;
-    downloadBlob("final.csv", predictionsToCsv(finalRows()), "text/csv");
+  function downloadFinal() {
+    if (done < queue.length || !queue.length) return;
+    const rows = exportablePredictions(finalRows(), includeEvidence);
+    if (exportFormat === "jsonl") {
+      downloadJsonl("final.jsonl", rows);
+      return;
+    }
+    downloadBlob("final.csv", predictionsToCsv(rows, includeEvidence), "text/csv");
   }
 
   return (
@@ -1078,7 +1096,9 @@ function Review({
           <PrimaryButton onClick={finish} disabled={done < queue.length || !queue.length}>
             Complete review <Icon name="arrow" size={15} />
           </PrimaryButton>
-          <SecondaryButton onClick={downloadFinalCsv} disabled={done < queue.length || !queue.length}>Download final.csv</SecondaryButton>
+          <SecondaryButton onClick={downloadFinal} disabled={done < queue.length || !queue.length}>
+            Download final.{exportFormat === "jsonl" ? "jsonl" : "csv"}
+          </SecondaryButton>
           <button className="btn btn-ghost btn-full" onClick={downloadDecisions} disabled={!done}>Download decisions.json</button>
         </aside>
       </section>
@@ -1264,8 +1284,8 @@ function SettingsPage({
         <section className="panel settings-panel">
           <div className="panel-head"><div><span className="section-kicker">PRIVACY & OUTPUT</span><h2>Local controls</h2></div><Icon name="shield" /></div>
           <div className="local-note"><Icon name="lock" size={17} /><div><strong>Local by design</strong><span>Browser, API and model runtime all stay on the machine.</span></div></div>
-          <div className="setting-row"><div><strong>Fraud / injection scanner</strong><span>Scan narration for suspicious links and prompt-injection patterns.</span></div><Toggle enabled={fraud} onChange={() => setFraud((value) => !value)} label="Fraud and injection scanner" /></div>
-          <div className="setting-row"><div><strong>Export format</strong><span>Used by the review/export actions.</span></div><div className="segmented">{["jsonl", "csv"].map((value) => <button key={value} className={format === value ? "selected" : ""} onClick={() => setFormat(value)}>{value.toUpperCase()}</button>)}</div></div>
+          <div className="setting-row"><div><strong>Fraud / injection scanner</strong><span>Applied by the VouchPilot+ scorer to narration and bill signals.</span></div><Toggle enabled={fraud} onChange={() => setFraud((value) => !value)} label="Fraud and injection scanner" /></div>
+          <div className="setting-row"><div><strong>Primary export format</strong><span>Controls the one-click final export in Review.</span></div><div className="segmented">{["jsonl", "csv"].map((value) => <button key={value} className={format === value ? "selected" : ""} onClick={() => setFormat(value)}>{value.toUpperCase()}</button>)}</div></div>
           <div className="setting-row"><div><strong>Include evidence</strong><span>Keep evidence tags and decision markers in exports.</span></div><Toggle enabled={evidence} onChange={() => setEvidence((value) => !value)} label="Include evidence" /></div>
         </section>
 
@@ -1351,7 +1371,7 @@ function App() {
   function navigate(next: Area) {
     setArea(next);
     setNavOpen(false);
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    window.scrollTo({ top: 0, behavior: "auto" });
   }
 
   function commitRun(run: RunRecord, nextPredictions: Prediction[]) {
@@ -1420,9 +1440,16 @@ function App() {
           </div>
         ) : null}
 
-        {area === "Dashboard" ? <Dashboard navigate={navigate} runs={runs} predictions={predictions} /> : null}
+        {area === "Dashboard" ? <Dashboard navigate={navigate} runs={runs} predictions={predictions} scorer={String(settings.scorer ?? "keyword")} /> : null}
         {area === "Classify" ? <Classify settings={settings} initial={predictions} onDone={commitRun} /> : null}
-        {area === "Review" ? <Review predictions={predictions} labels={labels} threshold={Number(settings.auto_approve_threshold ?? 85)} onExport={commitReview} /> : null}
+        {area === "Review" ? <Review
+          predictions={predictions}
+          labels={labels}
+          threshold={Number(settings.auto_approve_threshold ?? 85)}
+          exportFormat={String(settings.export_format ?? "jsonl")}
+          includeEvidence={Boolean(settings.include_evidence ?? true)}
+          onExport={commitReview}
+        /> : null}
         {area === "System" ? <System /> : null}
         {area === "Settings" ? <SettingsPage theme={theme} onThemeToggle={() => setTheme((value) => value === "light" ? "dark" : "light")} settings={settings} onSaved={setSettings} /> : null}
 
