@@ -48,13 +48,28 @@ Messy workbooks with title rows, merged cells, Hindi/Marathi headers and multipl
 
 **Docker**
 
+The production image builds the React UI and Python runtime together; no pre-built `web/dist` is required.
+
 ```powershell
-cd web
-npm install
-npm run build
-cd ..
+docker build -t vouchpilot .
+docker run --rm -p 8000:8000 vouchpilot
+```
+
+Open `http://127.0.0.1:8000`.
+
+The compose file starts the app without a model server:
+
+```powershell
 docker compose up --build
 ```
+
+For the optional local llama.cpp service (with `models/Qwen3.5-4B-Q4_K_M.gguf` present):
+
+```powershell
+docker compose --profile llm up --build
+```
+
+Set `VOUCH_MAX_UPLOAD_BYTES` to change the server-side upload ceiling (default 50 MiB).
 
 ## 3. Try sample data
 
@@ -98,7 +113,7 @@ Settings persist locally in `settings.json`:
 
 `scorer`, `endpoint`, `workers`, `challenger`, `fraud`, `auto_approve_threshold`, `export_format`, `include_evidence`, `theme`.
 
-Supported export formats are `jsonl`, `csv` and legacy `xlsx`.
+Supported export formats are `jsonl` and `csv`. The API also retains the legacy XLSX writer for CLI automation.
 
 ## 7. Project layout
 
